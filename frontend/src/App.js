@@ -7,7 +7,6 @@ const API_URL = process.env.REACT_APP_API_URL || (window.location.hostname === '
 function App() {
   const [locataires, setLocataires] = useState([]);
   const [biens, setBiens] = useState([]);
-  const [selectedBienId, setSelectedBienId] = useState('');
   const [config, setConfig] = useState(null);
   const [showModal, setShowModal] = useState(false);
   const [showConfigModal, setShowConfigModal] = useState(false);
@@ -38,10 +37,19 @@ function App() {
 
   const currentYear = new Date().getFullYear();
 
+  // Chargement initial des données au montage
   useEffect(() => {
-    loadLocataires();
-    loadBiens();
-    loadConfig();
+    const init = async () => {
+      try {
+        await loadLocataires();
+        await loadBiens();
+        await loadConfig();
+      } catch (error) {
+        console.error('Erreur lors du chargement initial des données:', error);
+      }
+    };
+    init();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const loadLocataires = async () => {
@@ -310,7 +318,6 @@ function App() {
   const handleExportCompta = async () => {
     try {
       const params = new URLSearchParams();
-      if (selectedBienId) params.append('bienId', selectedBienId);
       if (exportFrom) params.append('from', exportFrom);
       if (exportTo) params.append('to', exportTo);
 
@@ -411,13 +418,7 @@ function App() {
         </div>
 
         <div className="locataires-grid">
-          {locataires
-            .filter((locataire) =>
-              selectedBienId
-                ? String(locataire.bienId) === String(selectedBienId)
-                : true
-            )
-            .map((locataire) => {
+          {locataires.map((locataire) => {
               const bien = biens.find((b) => b.id === locataire.bienId);
               return (
             <div key={locataire.id} className="locataire-card">
