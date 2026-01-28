@@ -1,0 +1,919 @@
+import React, { useState, useEffect } from 'react';
+import axios from 'axios';
+import './App.css';
+
+const API_URL = process.env.REACT_APP_API_URL || (window.location.hostname === 'localhost' ? 'http://localhost:3001/api' : '/api');
+
+function App() {
+  const [locataires, setLocataires] = useState([]);
+  const [biens, setBiens] = useState([]);
+  const [selectedBienId, setSelectedBienId] = useState('');
+  const [config, setConfig] = useState(null);
+  const [showModal, setShowModal] = useState(false);
+  const [showConfigModal, setShowConfigModal] = useState(false);
+  const [editingLocataire, setEditingLocataire] = useState(null);
+  const [formData, setFormData] = useState({
+    nom: '',
+    prenom: '',
+    email: '',
+    loyer: '',
+    charges: '',
+    adresse: '',
+    bienId: ''
+  });
+  const [configData, setConfigData] = useState({
+    proprietaire: { nom: '', prenom: '', adresse: '', signature: '' },
+    email: { user: '', from: '', oauth2: { clientId: '', clientSecret: '', refreshToken: '' } },
+    appName: 'Gestion Quittances'
+  });
+  const [emailTestResult, setEmailTestResult] = useState(null);
+  const [testingEmail, setTestingEmail] = useState(false);
+  const [oauthConnecting, setOauthConnecting] = useState(false);
+  const [showHelpModal, setShowHelpModal] = useState(false);
+  const [helpForm, setHelpForm] = useState({ nom: '', email: '', message: '' });
+  const [helpSending, setHelpSending] = useState(false);
+  const [sendingQuittanceId, setSendingQuittanceId] = useState(null);
+  const [exportFrom, setExportFrom] = useState('');
+  const [exportTo, setExportTo] = useState('');
+
+  const currentYear = new Date().getFullYear();
+
+  useEffect(() => {
+    loadLocataires();
+    loadBiens();
+    loadConfig();
+  }, []);
+
+  const loadLocataires = async () => {
+    try {
+      const response = await axios.get(`${API_URL}/locataires`);
+      setLocataires(response.data);
+    } catch (error) {
+      console.error('Erreur lors du chargement des locataires:', error);
+    }
+  };
+
+  const loadBiens = async () => {
+    try {
+      const response = await axios.get(`${API_URL}/biens`);
+      setBiens(response.data);
+      // Si aucun bien sélectionné, prendre le premier par défaut pour le formulaire
+      if (response.data.length > 0 && !formData.bienId) {
+        setFormData((prev) => ({ ...prev, bienId: response.data[0].id }));
+      }
+    } catch (error) {
+      console.error('Erreur lors du chargement des biens:', error);
+    }
+  };
+
+  const loadConfig = async () => {
+    try {
+      const response = await axios.get(`${API_URL}/config`);
+      setConfigData(response.data);
+      setConfig(response.data);
+    } catch (error) {
+      console.error('Erreur lors du chargement de la config:', error);
+    }
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    try {
+      const data = {
+        ...formData,
+        loyer: parseFloat(formData.loyer) || 0,
+        charges: parseFloat(formData.charges) || 0
+      };
+
+      if (editingLocataire) {
+        await axios.put(`${API_URL}/locataires/${editingLocataire.id}`, data);
+      } else {
+        await axios.post(`${API_URL}/locataires`, data);
+      }
+
+      setShowModal(false);
+      setEditingLocataire(null);
+      setFormData({
+        nom: '',
+        prenom: '',
+        email: '',
+        loyer: '',
+        charges: '',
+        adresse: '',
+        bienId: biens[0]?.id || ''
+      });
+      loadLocataires();
+    } catch (error) {
+      console.error('Erreur:', error);
+      alert('Erreur lors de la sauvegarde');
+    }
+  };
+
+  const handleEdit = (locataire) => {
+    setEditingLocataire(locataire);
+    setFormData({
+      nom: locataire.nom,
+      prenom: locataire.prenom,
+      email: locataire.email,
+      loyer: locataire.loyer,
+      charges: locataire.charges,
+      adresse: locataire.adresse,
+      bienId: locataire.bienId || ''
+    });
+    setShowModal(true);
+  };
+
+  const handleDelete = async (id) => {
+    if (window.confirm('Êtes-vous sûr de vouloir supprimer ce locataire ?')) {
+      try {
+        await axios.delete(`${API_URL}/locataires/${id}`);
+        loadLocataires();
+      } catch (error) {
+        console.error('Erreur:', error);
+        alert('Erreur lors de la suppression');
+      }
+    }
+  };
+
+  const handleSendQuittance = async (locataireId) => {
+    if (!window.confirm('Envoyer la quittance par email maintenant ?')) {
+      return;
+    }
+
+    try {
+      setSendingQuittanceId(locataireId);
+      const now = new Date();
+      const mois = now.toLocaleString('fr-FR', { month: 'long' });
+      const annee = now.getFullYear();
+
+      const response = await axios.post(`${API_URL}/send-quittance`, {
+        locataireId,
+        mois,
+        annee
+      });
+
+      const sentAt = response.data?.lastQuittanceSentAt || new Date().toISOString();
+      setLocataires((prev) =>
+        prev.map((l) =>
+          l.id === locataireId ? { ...l, lastQuittanceSentAt: sentAt } : l
+        )
+      );
+
+    } catch (error) {
+      console.error('Erreur:', error);
+      const errorMessage = error.response?.data?.error || error.message;
+      
+      if (errorMessage.includes('ERREUR_AUTH_GMAIL') || errorMessage.includes('BadCredentials') || errorMessage.includes('Invalid login')) {
+        alert('❌ ERREUR D\'AUTHENTIFICATION GMAIL\n\n' +
+              'Vous devez utiliser un "Mot de passe d\'application" Gmail, pas votre mot de passe Gmail normal.\n\n' +
+              'Étapes pour créer un mot de passe d\'application :\n' +
+              '1. Allez sur https://myaccount.google.com/apppasswords\n' +
+              '2. Activez la validation en 2 étapes si nécessaire\n' +
+              '3. Créez un mot de passe d\'application (16 caractères)\n' +
+              '4. Utilisez ce mot de passe dans la configuration\n\n' +
+              'Allez dans Configuration (⚙️) pour corriger cela.');
+      } else {
+        alert('Erreur lors de l\'envoi: ' + errorMessage);
+      }
+    } finally {
+      setSendingQuittanceId(null);
+    }
+  };
+
+  const handleConfigSubmit = async (e) => {
+    e.preventDefault();
+    try {
+      await axios.put(`${API_URL}/config`, configData);
+      setShowConfigModal(false);
+      loadConfig();
+      setEmailTestResult(null);
+      alert('Configuration sauvegardée !');
+    } catch (error) {
+      console.error('Erreur:', error);
+      alert('Erreur lors de la sauvegarde');
+    }
+  };
+
+  const handleTestEmail = async () => {
+    setTestingEmail(true);
+    setEmailTestResult(null);
+    try {
+      // Sauvegarder temporairement la config pour le test
+      await axios.put(`${API_URL}/config`, configData);
+      const response = await axios.post(`${API_URL}/test-email`);
+      setEmailTestResult(response.data);
+    } catch (error) {
+      setEmailTestResult({
+        success: false,
+        message: error.response?.data?.message || error.message || 'Erreur lors du test'
+      });
+    } finally {
+      setTestingEmail(false);
+    }
+  };
+
+  const handleOAuthConnect = async () => {
+    if (!configData.email.oauth2.clientId || !configData.email.oauth2.clientSecret) {
+      alert('Veuillez d\'abord entrer votre Client ID et Client Secret OAuth2');
+      return;
+    }
+
+    setOauthConnecting(true);
+    try {
+      // Sauvegarder la config avec les identifiants OAuth2
+      await axios.put(`${API_URL}/config`, configData);
+      
+      // Obtenir l'URL d'autorisation
+      const response = await axios.post(`${API_URL}/oauth/get-auth-url`, {
+        clientId: configData.email.oauth2.clientId,
+        clientSecret: configData.email.oauth2.clientSecret
+      });
+      
+      // Ouvrir la fenêtre d'autorisation
+      const authWindow = window.open(
+        response.data.authUrl,
+        'Gmail OAuth',
+        'width=600,height=700'
+      );
+      
+      // Vérifier périodiquement si la fenêtre est fermée
+      const checkClosed = setInterval(() => {
+        if (authWindow.closed) {
+          clearInterval(checkClosed);
+          setOauthConnecting(false);
+          // Recharger la config pour obtenir le refresh token
+          loadConfig();
+          alert('Autorisation terminée ! Testez la connexion pour vérifier.');
+        }
+      }, 1000);
+      
+    } catch (error) {
+      setOauthConnecting(false);
+      alert('Erreur: ' + (error.response?.data?.error || error.message));
+    }
+  };
+
+  const handleHelpSubmit = async (e) => {
+    e.preventDefault();
+    if (!helpForm.message || helpForm.message.trim().length < 5) {
+      alert('Merci de décrire un peu plus votre problème.');
+      return;
+    }
+
+    try {
+      setHelpSending(true);
+      await axios.post(`${API_URL}/support-message`, helpForm);
+      setHelpSending(false);
+      setShowHelpModal(false);
+      setHelpForm({ nom: '', email: '', message: '' });
+      alert('Votre demande d\'aide a bien été envoyée. Vous recevrez une réponse par email.');
+    } catch (error) {
+      setHelpSending(false);
+      alert('Erreur lors de l\'envoi du message d\'aide : ' + (error.response?.data?.error || error.message));
+    }
+  };
+
+  const handleSendQuittancesRange = async (locataire) => {
+    const from = window.prompt(
+      `Date de début (format AAAA-MM-JJ) pour ${locataire.prenom} ${locataire.nom} :`
+    );
+    if (!from) return;
+    const to = window.prompt(
+      `Date de fin (format AAAA-MM-JJ) pour ${locataire.prenom} ${locataire.nom} :`
+    );
+    if (!to) return;
+
+    if (new Date(from) > new Date(to)) {
+      alert('La date de début doit être avant la date de fin.');
+      return;
+    }
+
+    try {
+      const response = await axios.post(`${API_URL}/send-quittances-range`, {
+        locataireId: locataire.id,
+        from,
+        to
+      });
+      const count = response.data?.sentCount ?? 0;
+      if (count > 0) {
+        await loadLocataires();
+        alert(`✅ ${count} quittance(s) ont été envoyées à ${locataire.prenom} ${locataire.nom}.`);
+      } else {
+        alert('Aucune quittance n\'a été envoyée sur cette période (vérifiez les dates).');
+      }
+    } catch (error) {
+      console.error('Erreur envoi multiple:', error);
+      alert('Erreur lors de l\'envoi des quittances : ' + (error.response?.data?.error || error.message));
+    }
+  };
+
+  const handleExportCompta = async () => {
+    try {
+      const params = new URLSearchParams();
+      if (selectedBienId) params.append('bienId', selectedBienId);
+      if (exportFrom) params.append('from', exportFrom);
+      if (exportTo) params.append('to', exportTo);
+
+      const url = `${API_URL}/exports/compta?${params.toString()}`;
+      const response = await axios.get(url, { responseType: 'blob' });
+
+      const blob = new Blob([response.data], { type: 'text/csv;charset=utf-8;' });
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      const today = new Date().toISOString().slice(0, 10);
+      link.download = `export_compta_${today}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(downloadUrl);
+    } catch (error) {
+      console.error('Erreur export comptable:', error);
+      alert('Erreur lors de l\'export comptable : ' + (error.response?.data?.error || error.message));
+    }
+  };
+
+  const handleSubscribe = async () => {
+    try {
+      const response = await axios.post(`${API_URL}/billing/create-checkout-session`, {
+        priceId: process.env.REACT_APP_STRIPE_PRICE_ID || undefined,
+        customerEmail: config?.email?.user || undefined,
+        successUrl: window.location.origin + '?abonnement=success',
+        cancelUrl: window.location.origin + '?abonnement=cancel'
+      });
+      if (response.data?.url) {
+        window.location.href = response.data.url;
+      } else {
+        alert('Impossible d’ouvrir la page de paiement Stripe.');
+      }
+    } catch (error) {
+      console.error('Erreur Stripe:', error);
+      alert('Erreur lors de la création de la session de paiement : ' + (error.response?.data?.error || error.message));
+    }
+  };
+
+  return (
+    <div className="App">
+      <header className="app-header">
+        <div className="brand-block">
+          <span className="brand-title">Quittance de Loyer</span>
+          <span className="brand-subtitle">Une application DaniCorp°</span>
+        </div>
+        <div className="header-actions">
+          <button className="btn-secondary" onClick={handleSubscribe}>
+            S’abonner (Stripe)
+          </button>
+          <button className="btn-help" onClick={() => setShowHelpModal(true)}>
+            Aide / Support
+          </button>
+          <button className="btn-config" onClick={() => setShowConfigModal(true)}>
+            ⚙️ Configuration
+          </button>
+        </div>
+      </header>
+
+      <main className="main-content">
+        <section className="hero">
+          <div className="hero-content">
+            <div className="hero-text">
+              <p className="hero-eyebrow">DaniCorp° • Gestion locative</p>
+              <h1 className="hero-title">Quittance de loyer automatique</h1>
+              <p className="hero-subtitle">
+                Génération, signature et envoi automatique de vos quittances de loyer, chaque début de mois, avec vos
+                mentions légales intégrées.
+              </p>
+            </div>
+            <div className="hero-logo">
+              <img src="/quittance-logo.png" alt="Logo Quittance de Loyer" />
+            </div>
+          </div>
+        </section>
+
+        <div className="locataires-header">
+          <div className="locataires-header-left">
+            <h2>Locataires</h2>
+          </div>
+          <button className="btn-add" onClick={() => {
+            setEditingLocataire(null);
+            setFormData({
+              nom: '',
+              prenom: '',
+              email: '',
+              loyer: '',
+              charges: '',
+              adresse: '',
+              bienId: biens[0]?.id || ''
+            });
+            setShowModal(true);
+          }}>
+            + Ajouter un locataire
+          </button>
+        </div>
+
+        <div className="locataires-grid">
+          {locataires
+            .filter((locataire) =>
+              selectedBienId
+                ? String(locataire.bienId) === String(selectedBienId)
+                : true
+            )
+            .map((locataire) => {
+              const bien = biens.find((b) => b.id === locataire.bienId);
+              return (
+            <div key={locataire.id} className="locataire-card">
+              <div className="locataire-header">
+                <h3>{locataire.nom} {locataire.prenom}</h3>
+                <div className="locataire-actions">
+                  <button onClick={() => handleEdit(locataire)} className="btn-icon">✏️</button>
+                  <button onClick={() => handleDelete(locataire.id)} className="btn-icon">🗑️</button>
+                </div>
+              </div>
+              <div className="locataire-info">
+                <p><strong>Bien:</strong> {bien ? bien.nom : 'Non défini'}</p>
+                <p><strong>Email:</strong> {locataire.email || 'Non renseigné'}</p>
+                <p><strong>Adresse:</strong> {locataire.adresse || 'Non renseignée'}</p>
+                <p><strong>Loyer:</strong> {locataire.loyer.toFixed(2)} €</p>
+                <p><strong>Charges:</strong> {locataire.charges.toFixed(2)} €</p>
+                <p><strong>Total:</strong> {(locataire.loyer + locataire.charges).toFixed(2)} €</p>
+                <p>
+                  <strong>Dernière quittance :</strong>{' '}
+                  {locataire.lastQuittanceSentAt
+                    ? new Date(locataire.lastQuittanceSentAt).toLocaleString('fr-FR', {
+                        day: '2-digit',
+                        month: '2-digit',
+                        year: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      })
+                    : 'Jamais envoyée'}
+                </p>
+                <button
+                  type="button"
+                  className="btn-link"
+                  onClick={() => handleSendQuittancesRange(locataire)}
+                >
+                  Envoyer plusieurs mois…
+                </button>
+              </div>
+              <button
+                className={`btn-send ${sendingQuittanceId === locataire.id ? 'btn-send-loading' : ''}`}
+                onClick={() => handleSendQuittance(locataire.id)}
+                disabled={!locataire.email || locataire.loyer === 0 || sendingQuittanceId === locataire.id}
+              >
+                {sendingQuittanceId === locataire.id ? 'Envoi en cours…' : 'Envoyer quittance'}
+              </button>
+            </div>
+          );
+        })}
+        </div>
+
+        <div className="export-bar">
+          <div className="export-filters">
+            <label>
+              Du :
+              <input
+                type="date"
+                value={exportFrom}
+                onChange={(e) => setExportFrom(e.target.value)}
+              />
+            </label>
+            <label>
+              au :
+              <input
+                type="date"
+                value={exportTo}
+                onChange={(e) => setExportTo(e.target.value)}
+              />
+            </label>
+            <button type="button" className="btn-export" onClick={handleExportCompta}>
+              Exporter CSV
+            </button>
+          </div>
+        </div>
+      </main>
+
+      {showModal && (
+        <div className="modal-overlay" onClick={() => setShowModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <h2>{editingLocataire ? 'Modifier' : 'Ajouter'} un locataire</h2>
+            <form onSubmit={handleSubmit}>
+              <div className="form-group">
+                <label>Nom *</label>
+                <input
+                  type="text"
+                  value={formData.nom}
+                  onChange={(e) => setFormData({ ...formData, nom: e.target.value })}
+                  required
+                />
+              </div>
+              <div className="form-group">
+                <label>Prénom</label>
+                <input
+                  type="text"
+                  value={formData.prenom}
+                  onChange={(e) => setFormData({ ...formData, prenom: e.target.value })}
+                />
+              </div>
+              <div className="form-group">
+                <label>Email *</label>
+                <input
+                  type="email"
+                  value={formData.email}
+                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                  required
+                />
+              </div>
+              <div className="form-group">
+                <label>Adresse</label>
+                <input
+                  type="text"
+                  value={formData.adresse}
+                  onChange={(e) => setFormData({ ...formData, adresse: e.target.value })}
+                />
+              </div>
+              <div className="form-group">
+                <label>Loyer (€) *</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={formData.loyer}
+                  onChange={(e) => setFormData({ ...formData, loyer: e.target.value })}
+                  required
+                />
+              </div>
+              <div className="form-group">
+                <label>Charges (€)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={formData.charges}
+                  onChange={(e) => setFormData({ ...formData, charges: e.target.value })}
+                />
+              </div>
+              <div className="form-group">
+                <label>Bien *</label>
+                <select
+                  required
+                  value={formData.bienId}
+                  onChange={(e) => setFormData({ ...formData, bienId: e.target.value })}
+                >
+                  {biens.length === 0 && <option value="">Aucun bien défini</option>}
+                  {biens.map((bien) => (
+                    <option key={bien.id} value={bien.id}>
+                      {bien.nom}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="form-actions">
+                <button type="button" onClick={() => setShowModal(false)}>Annuler</button>
+                <button type="submit">Sauvegarder</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {showConfigModal && (
+        <div className="modal-overlay" onClick={() => setShowConfigModal(false)}>
+          <div className="modal-content modal-large" onClick={(e) => e.stopPropagation()}>
+            <h2>Configuration</h2>
+            <form onSubmit={handleConfigSubmit}>
+              <h3>Propriétaire</h3>
+              <div className="form-group">
+                <label>Nom</label>
+                <input
+                  type="text"
+                  value={configData.proprietaire.nom}
+                  onChange={(e) => setConfigData({
+                    ...configData,
+                    proprietaire: { ...configData.proprietaire, nom: e.target.value }
+                  })}
+                />
+              </div>
+              <div className="form-group">
+                <label>Prénom</label>
+                <input
+                  type="text"
+                  value={configData.proprietaire.prenom}
+                  onChange={(e) => setConfigData({
+                    ...configData,
+                    proprietaire: { ...configData.proprietaire, prenom: e.target.value }
+                  })}
+                />
+              </div>
+              <div className="form-group">
+                <label>Adresse</label>
+                <input
+                  type="text"
+                  value={configData.proprietaire.adresse}
+                  onChange={(e) => setConfigData({
+                    ...configData,
+                    proprietaire: { ...configData.proprietaire, adresse: e.target.value }
+                  })}
+                />
+              </div>
+              <div className="form-group">
+                <label>Signature (pour tous les documents)</label>
+                <small style={{ display: 'block', marginBottom: '0.5rem' }}>
+                  Uploadez une image de votre signature (PNG ou JPG). Elle apparaîtra sur toutes les quittances.
+                </small>
+                {configData.proprietaire?.signature ? (
+                  <div>
+                    <img
+                      src={configData.proprietaire.signature}
+                      alt="Signature"
+                      style={{ maxWidth: 200, maxHeight: 80, border: '1px solid #ddd', borderRadius: 4, marginBottom: '0.5rem' }}
+                    />
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                      <label style={{ cursor: 'pointer', padding: '0.5rem 1rem', backgroundColor: '#007bff', color: 'white', borderRadius: 4 }}>
+                        Changer
+                        <input
+                          type="file"
+                          accept="image/png,image/jpeg,image/jpg"
+                          style={{ display: 'none' }}
+                          onChange={(e) => {
+                            const f = e.target.files?.[0];
+                            if (f) {
+                              const r = new FileReader();
+                              r.onload = () => setConfigData({
+                                ...configData,
+                                proprietaire: { ...configData.proprietaire, signature: r.result }
+                              });
+                              r.readAsDataURL(f);
+                            }
+                          }}
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setConfigData({
+                          ...configData,
+                          proprietaire: { ...configData.proprietaire, signature: '' }
+                        })}
+                        style={{ padding: '0.5rem 1rem', backgroundColor: '#dc3545', color: 'white', border: 'none', borderRadius: 4, cursor: 'pointer' }}
+                      >
+                        Supprimer
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <label style={{ cursor: 'pointer', display: 'inline-block', padding: '0.75rem 1.5rem', backgroundColor: '#f0f0f0', border: '1px dashed #999', borderRadius: 4 }}>
+                    📄 Choisir une image (PNG / JPG)
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg,image/jpg"
+                      style={{ display: 'none' }}
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (f) {
+                          const r = new FileReader();
+                          r.onload = () => setConfigData({
+                            ...configData,
+                            proprietaire: { ...configData.proprietaire, signature: r.result }
+                          });
+                          r.readAsDataURL(f);
+                        }
+                      }}
+                    />
+                  </label>
+                )}
+              </div>
+
+              <h3>Email Gmail</h3>
+              <div className="form-group">
+                <label>Email Gmail *</label>
+                <input
+                  type="email"
+                  value={configData.email.user || ''}
+                  onChange={(e) => setConfigData({
+                    ...configData,
+                    email: { ...configData.email, user: e.target.value }
+                  })}
+                  placeholder="votre.email@gmail.com"
+                />
+              </div>
+
+              <div style={{ 
+                border: '2px solid #007bff', 
+                borderRadius: '8px', 
+                padding: '1rem', 
+                marginBottom: '1.5rem',
+                backgroundColor: '#f0f8ff'
+              }}>
+                <h4 style={{ marginTop: 0, color: '#007bff' }}>🔐 Connexion OAuth2 Gmail</h4>
+                <p style={{ fontSize: '0.9rem', marginBottom: '1rem' }}>
+                  Connexion directe et sécurisée à votre compte Gmail.
+                </p>
+                
+                <div className="form-group" style={{ marginBottom: '0.5rem' }}>
+                  <label>Client ID OAuth2</label>
+                  <input
+                    type="text"
+                    value={configData.email.oauth2?.clientId || ''}
+                    onChange={(e) => setConfigData({
+                      ...configData,
+                      email: {
+                        ...configData.email,
+                        oauth2: {
+                          ...(configData.email.oauth2 || {}),
+                          clientId: e.target.value
+                        }
+                      }
+                    })}
+                    placeholder="Votre Client ID depuis Google Cloud Console"
+                  />
+                  <small>
+                    <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener noreferrer" style={{color: '#007bff'}}>
+                      Obtenir un Client ID
+                    </a>
+                  </small>
+                </div>
+                
+                <div className="form-group" style={{ marginBottom: '0.5rem' }}>
+                  <label>Client Secret OAuth2</label>
+                  <input
+                    type="password"
+                    value={configData.email.oauth2?.clientSecret || ''}
+                    onChange={(e) => setConfigData({
+                      ...configData,
+                      email: {
+                        ...configData.email,
+                        oauth2: {
+                          ...(configData.email.oauth2 || {}),
+                          clientSecret: e.target.value
+                        }
+                      }
+                    })}
+                    placeholder="Votre Client Secret"
+                  />
+                </div>
+
+                {configData.email.oauth2?.refreshToken && (
+                  <div style={{
+                    padding: '0.5rem',
+                    backgroundColor: '#d4edda',
+                    borderRadius: '4px',
+                    marginBottom: '0.5rem',
+                    fontSize: '0.9rem',
+                    color: '#155724'
+                  }}>
+                    ✅ Refresh Token configuré
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={handleOAuthConnect}
+                  disabled={oauthConnecting || !configData.email.oauth2?.clientId || !configData.email.oauth2?.clientSecret || !configData.email.user}
+                  style={{
+                    width: '100%',
+                    padding: '0.75rem',
+                    backgroundColor: oauthConnecting ? '#6c757d' : '#007bff',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor: oauthConnecting ? 'not-allowed' : 'pointer',
+                    fontSize: '1rem',
+                    fontWeight: 'bold'
+                  }}
+                >
+                  {oauthConnecting ? '⏳ Connexion en cours...' : '🔗 Se connecter à Gmail avec OAuth2'}
+                </button>
+              </div>
+
+              <div className="form-group">
+                <label>Nom de l'expéditeur</label>
+                <input
+                  type="text"
+                  value={configData.email.from || ''}
+                  onChange={(e) => setConfigData({
+                    ...configData,
+                    email: { ...configData.email, from: e.target.value }
+                  })}
+                  placeholder="Votre nom <email@gmail.com>"
+                />
+              </div>
+
+              <button 
+                type="button" 
+                onClick={handleTestEmail}
+                disabled={testingEmail || !configData.email.user}
+                style={{
+                  width: '100%',
+                  marginTop: '0.5rem',
+                  padding: '0.75rem',
+                  backgroundColor: '#28a745',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: testingEmail ? 'not-allowed' : 'pointer',
+                  fontSize: '1rem',
+                  fontWeight: 'bold',
+                  opacity: (testingEmail || !configData.email.user) ? 0.6 : 1
+                }}
+              >
+                {testingEmail ? '⏳ Test en cours...' : '🔍 Tester la connexion Gmail'}
+              </button>
+              {emailTestResult && (
+                <div style={{
+                  marginTop: '0.5rem',
+                  padding: '0.75rem',
+                  borderRadius: '4px',
+                  backgroundColor: emailTestResult.success ? '#d4edda' : '#f8d7da',
+                  color: emailTestResult.success ? '#155724' : '#721c24',
+                  border: `1px solid ${emailTestResult.success ? '#c3e6cb' : '#f5c6cb'}`,
+                  whiteSpace: 'pre-line',
+                  fontSize: '0.9rem'
+                }}>
+                  {emailTestResult.success ? '✅ ' : '❌ '}
+                  {emailTestResult.message}
+                </div>
+              )}
+
+              <h3>Application</h3>
+              <div className="form-group">
+                <label>Nom de l'application</label>
+                <input
+                  type="text"
+                  value={configData.appName}
+                  onChange={(e) => setConfigData({ ...configData, appName: e.target.value })}
+                />
+              </div>
+
+              <div className="form-actions">
+                <button type="button" onClick={() => setShowConfigModal(false)}>Annuler</button>
+                <button type="submit">Sauvegarder</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+      
+      {showHelpModal && (
+        <div className="modal-overlay" onClick={() => setShowHelpModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <h2>Besoin d'aide ?</h2>
+            <p style={{ marginBottom: '1rem', fontSize: '0.95rem', color: '#555' }}>
+              Décrivez votre problème, et vous serez recontacté sur votre adresse email.
+            </p>
+            <form onSubmit={handleHelpSubmit}>
+              <div className="form-group">
+                <label>Nom</label>
+                <input
+                  type="text"
+                  value={helpForm.nom}
+                  onChange={(e) => setHelpForm({ ...helpForm, nom: e.target.value })}
+                />
+              </div>
+              <div className="form-group">
+                <label>Email de contact *</label>
+                <input
+                  type="email"
+                  required
+                  value={helpForm.email}
+                  onChange={(e) => setHelpForm({ ...helpForm, email: e.target.value })}
+                  placeholder="votre.email@exemple.com"
+                />
+              </div>
+              <div className="form-group">
+                <label>Message *</label>
+                <textarea
+                  required
+                  rows={5}
+                  value={helpForm.message}
+                  onChange={(e) => setHelpForm({ ...helpForm, message: e.target.value })}
+                  placeholder="Expliquez ce qui ne fonctionne pas, à quel moment, avec quel locataire, etc."
+                  style={{ resize: 'vertical', fontFamily: 'inherit' }}
+                />
+              </div>
+              <div className="form-actions">
+                <button type="button" onClick={() => setShowHelpModal(false)}>Annuler</button>
+                <button type="submit" disabled={helpSending}>
+                  {helpSending ? 'Envoi en cours...' : 'Envoyer le message'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+      
+      <footer className="site-footer">
+        <div className="footer-left">
+          <span className="footer-app-name">{configData.appName || 'Quittance de Loyer'}</span>
+          <span className="footer-separator">•</span>
+          <span>© {currentYear} DaniCorp° – Application créée par Daniel JOUIN</span>
+        </div>
+        <div className="footer-right">
+          <a href="#mentions-legales">Mentions légales</a>
+          <span>·</span>
+          <a href="#confidentialite">Politique de confidentialité</a>
+          <span>·</span>
+          <a href="#cgu">Conditions d’utilisation</a>
+        </div>
+      </footer>
+    </div>
+  );
+}
+
+export default App;
