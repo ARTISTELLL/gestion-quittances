@@ -9,14 +9,16 @@ async function initTransporter(config) {
     return transporter;
   }
 
-  if (!config.email.oauth2?.clientId || !config.email.oauth2?.refreshToken) {
-    throw new Error('Configuration OAuth2 incomplète. Connectez-vous à Gmail via OAuth2.');
+  const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
+  if (!clientId || !clientSecret || !config.email.oauth2?.refreshToken) {
+    throw new Error('Configuration OAuth2 incomplète. Connectez-vous à Gmail via OAuth2 (et configurez les variables d\'env du serveur).');
   }
 
   try {
     const accessToken = await getAccessToken(
-      config.email.oauth2.clientId,
-      config.email.oauth2.clientSecret,
+      clientId,
+      clientSecret,
       config.email.oauth2.refreshToken
     );
     
@@ -25,8 +27,8 @@ async function initTransporter(config) {
       auth: {
         type: 'OAuth2',
         user: config.email.user,
-        clientId: config.email.oauth2.clientId,
-        clientSecret: config.email.oauth2.clientSecret,
+        clientId,
+        clientSecret,
         refreshToken: config.email.oauth2.refreshToken,
         accessToken: accessToken
       }
@@ -39,7 +41,7 @@ async function initTransporter(config) {
 }
 
 async function sendEmail(locataire, config, pdfPath, mois, annee) {
-  const hasOAuth2 = config.email.oauth2 && config.email.oauth2.clientId && config.email.oauth2.refreshToken;
+  const hasOAuth2 = config.email.oauth2?.refreshToken && process.env.GOOGLE_OAUTH_CLIENT_ID && process.env.GOOGLE_OAUTH_CLIENT_SECRET;
   
   if (!config.email.user || !hasOAuth2) {
     throw new Error('Configuration email non complète. Connectez-vous à Gmail via OAuth2.');
@@ -79,7 +81,7 @@ async function sendEmail(locataire, config, pdfPath, mois, annee) {
 }
 
 async function testEmailConnection(config) {
-  const hasOAuth2 = config.email.oauth2 && config.email.oauth2.clientId && config.email.oauth2.refreshToken;
+  const hasOAuth2 = config.email.oauth2?.refreshToken && process.env.GOOGLE_OAUTH_CLIENT_ID && process.env.GOOGLE_OAUTH_CLIENT_SECRET;
   
   if (!config.email.user || !hasOAuth2) {
     return { 
@@ -98,7 +100,7 @@ async function testEmailConnection(config) {
 }
 
 async function sendSupportEmail(payload, config) {
-  const hasOAuth2 = config.email.oauth2 && config.email.oauth2.clientId && config.email.oauth2.refreshToken;
+  const hasOAuth2 = config.email.oauth2?.refreshToken && process.env.GOOGLE_OAUTH_CLIENT_ID && process.env.GOOGLE_OAUTH_CLIENT_SECRET;
 
   if (!config.email.user || !hasOAuth2) {
     throw new Error('Configuration email non complète. Connectez-vous à Gmail via OAuth2.');

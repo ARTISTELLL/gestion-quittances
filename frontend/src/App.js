@@ -240,19 +240,15 @@ function App() {
   };
 
   const handleOAuthConnect = async () => {
-    const oauth2 = configData.email?.oauth2 || {};
-    if (!oauth2.clientId || !oauth2.clientSecret) {
-      alert('Veuillez d\'abord entrer votre Client ID et Client Secret OAuth2');
+    if (!configData.email?.user?.trim()) {
+      alert('Veuillez d\'abord entrer votre adresse Gmail (champ « Email Gmail ») ci-dessus.');
       return;
     }
 
     setOauthConnecting(true);
     try {
       await axios.put(`${API_URL}/config`, configData);
-      const response = await axios.post(`${API_URL}/oauth/get-auth-url`, {
-        clientId: oauth2.clientId,
-        clientSecret: oauth2.clientSecret
-      });
+      const response = await axios.post(`${API_URL}/oauth/get-auth-url`, {});
 
       const authUrl = response.data?.authUrl;
       if (!authUrl) {
@@ -730,53 +726,10 @@ function App() {
                 marginBottom: '1.5rem',
                 backgroundColor: '#f0f8ff'
               }}>
-                <h4 style={{ marginTop: 0, color: '#007bff' }}>🔐 Connexion OAuth2 Gmail</h4>
+                <h4 style={{ marginTop: 0, color: '#007bff' }}>🔐 Connexion Gmail</h4>
                 <p style={{ fontSize: '0.9rem', marginBottom: '1rem' }}>
-                  Connexion directe et sécurisée à votre compte Gmail.
+                  Entrez votre adresse Gmail ci-dessus, puis cliquez sur le bouton : une fenêtre Google s’ouvrira pour vous connecter et autoriser l’envoi des quittances. Aucune clé à récupérer.
                 </p>
-                
-                <div className="form-group" style={{ marginBottom: '0.5rem' }}>
-                  <label>Client ID OAuth2</label>
-                  <input
-                    type="text"
-                    value={configData.email.oauth2?.clientId || ''}
-                    onChange={(e) => setConfigData({
-                      ...configData,
-                      email: {
-                        ...configData.email,
-                        oauth2: {
-                          ...(configData.email.oauth2 || {}),
-                          clientId: e.target.value
-                        }
-                      }
-                    })}
-                    placeholder="Votre Client ID depuis Google Cloud Console"
-                  />
-                  <small>
-                    <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener noreferrer" style={{color: '#007bff'}}>
-                      Obtenir un Client ID
-                    </a>
-                  </small>
-                </div>
-                
-                <div className="form-group" style={{ marginBottom: '0.5rem' }}>
-                  <label>Client Secret OAuth2</label>
-                  <input
-                    type="password"
-                    value={configData.email.oauth2?.clientSecret || ''}
-                    onChange={(e) => setConfigData({
-                      ...configData,
-                      email: {
-                        ...configData.email,
-                        oauth2: {
-                          ...(configData.email.oauth2 || {}),
-                          clientSecret: e.target.value
-                        }
-                      }
-                    })}
-                    placeholder="Votre Client Secret"
-                  />
-                </div>
 
                 {configData.email.oauth2?.refreshToken && (
                   <div style={{
@@ -787,14 +740,14 @@ function App() {
                     fontSize: '0.9rem',
                     color: '#155724'
                   }}>
-                    ✅ Refresh Token configuré
+                    ✅ Gmail connecté
                   </div>
                 )}
 
                 <button
                   type="button"
                   onClick={handleOAuthConnect}
-                  disabled={oauthConnecting || !configData.email.oauth2?.clientId || !configData.email.oauth2?.clientSecret || !configData.email.user}
+                  disabled={oauthConnecting || !(configData.email?.user || '').trim()}
                   style={{
                     width: '100%',
                     padding: '0.75rem',
@@ -807,7 +760,7 @@ function App() {
                     fontWeight: 'bold'
                   }}
                 >
-                  {oauthConnecting ? '⏳ Connexion en cours...' : '🔗 Se connecter à Gmail avec OAuth2'}
+                  {oauthConnecting ? '⏳ Connexion en cours...' : '🔗 Se connecter à Gmail'}
                 </button>
               </div>
 

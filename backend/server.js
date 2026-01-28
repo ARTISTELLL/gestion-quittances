@@ -279,18 +279,19 @@ app.delete('/api/biens/:id', async (req, res) => {
   }
 });
 
-// Route pour obtenir l'URL d'autorisation OAuth2
+// Route pour obtenir l'URL d'autorisation OAuth2 (Client ID/Secret lus depuis les variables d'env du serveur)
 app.post('/api/oauth/get-auth-url', async (req, res) => {
   try {
-    const { clientId, clientSecret } = req.body;
+    const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID;
+    const clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
     if (!clientId || !clientSecret) {
-      return res.status(400).json({ error: 'Client ID et Client Secret requis' });
+      return res.status(500).json({
+        error: 'OAuth non configuré : définir GOOGLE_OAUTH_CLIENT_ID et GOOGLE_OAUTH_CLIENT_SECRET dans les variables d\'environnement du serveur.'
+      });
     }
-    
     const baseUrl = getBaseUrl(req);
     const redirectUri = `${baseUrl}/api/oauth/callback`;
     const authUrl = getAuthUrl(clientId, clientSecret, redirectUri);
-    
     res.json({ authUrl, redirectUri });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -306,18 +307,16 @@ app.get('/api/oauth/callback', async (req, res) => {
     }
     
     const config = await fs.readJson(CONFIG_FILE);
-    if (!config.email.oauth2 || !config.email.oauth2.clientId || !config.email.oauth2.clientSecret) {
-      return res.status(400).send('Configuration OAuth2 incomplète');
+    if (!config.email) config.email = {};
+    if (!config.email.oauth2) config.email.oauth2 = {};
+    const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID;
+    const clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
+    if (!clientId || !clientSecret) {
+      return res.status(500).send('OAuth non configuré sur le serveur (variables d\'environnement manquantes).');
     }
-    
     const baseUrl = getBaseUrl(req);
     const redirectUri = `${baseUrl}/api/oauth/callback`;
-    const tokens = await getTokenFromCode(
-      code,
-      config.email.oauth2.clientId,
-      config.email.oauth2.clientSecret,
-      redirectUri
-    );
+    const tokens = await getTokenFromCode(code, clientId, clientSecret, redirectUri);
     
     // Sauvegarder le refresh token dans la config
     config.email.oauth2.refreshToken = tokens.refresh_token;
