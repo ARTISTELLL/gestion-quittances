@@ -596,38 +596,48 @@ app.post('/api/send-quittances-range', async (req, res) => {
 });
 
 // Tâche cron pour générer et envoyer les quittances le premier de chaque mois
-cron.schedule('0 9 1 * *', async () => {
-  try {
-    console.log('Génération automatique des quittances...');
-    const locataires = await fs.readJson(LOCATAIRES_FILE);
-    const config = await fs.readJson(CONFIG_FILE);
-    const now = new Date();
-    const mois = now.toLocaleString('fr-FR', { month: 'long' });
-    const annee = now.getFullYear();
-    
-    const updatedLocataires = [...locataires];
+// ATTENTION : dans un environnement serverless (Vercel), cette tâche ne tournera pas.
+// Elle restera active uniquement en mode serveur "classique" (exécution locale ou hébergement Node dédié).
+if (!process.env.VERCEL) {
+  cron.schedule('0 9 1 * *', async () => {
+    try {
+      console.log('Génération automatique des quittances...');
+      const locataires = await fs.readJson(LOCATAIRES_FILE);
+      const config = await fs.readJson(CONFIG_FILE);
+      const now = new Date();
+      const mois = now.toLocaleString('fr-FR', { month: 'long' });
+      const annee = now.getFullYear();
+      
+      const updatedLocataires = [...locataires];
 
-    for (const locataire of updatedLocataires) {
-      if (locataire.email && locataire.loyer > 0) {
-        try {
-          const pdfPath = await generateQuittance(locataire, config, mois, annee);
-          await sendEmail(locataire, config, pdfPath, mois, annee);
-          locataire.lastQuittanceSentAt = new Date().toISOString();
-          console.log(`Quittance envoyée à ${locataire.nom} ${locataire.prenom}`);
-        } catch (error) {
-          console.error(`Erreur pour ${locataire.nom}:`, error.message);
+      for (const locataire of updatedLocataires) {
+        if (locataire.email && locataire.loyer > 0) {
+          try {
+            const pdfPath = await generateQuittance(locataire, config, mois, annee);
+            await sendEmail(locataire, config, pdfPath, mois, annee);
+            locataire.lastQuittanceSentAt = new Date().toISOString();
+            console.log(`Quittance envoyée à ${locataire.nom} ${locataire.prenom}`);
+          } catch (error) {
+            console.error(`Erreur pour ${locataire.nom}:`, error.message);
+          }
         }
       }
+
+      await fs.writeJson(LOCATAIRES_FILE, updatedLocataires);
+    } catch (error) {
+      console.error('Erreur lors de la génération automatique:', error);
     }
-
-    await fs.writeJson(LOCATAIRES_FILE, updatedLocataires);
-  } catch (error) {
-    console.error('Erreur lors de la génération automatique:', error);
-  }
-});
-
-initData().then(() => {
-  app.listen(PORT, () => {
-    console.log(`Serveur démarré sur le port ${PORT}`);
   });
-});
+}
+
+// Export de l'app pour utilisation en mode serverless (Vercel)
+module.exports = { app, initData };
+
+// Démarrage du serveur uniquement en mode "classique" (non Vercel)
+if (!process.env.VERCEL) {
+  initData().then(() => {
+    app.listen(PORT, () => {
+      console.log(`Serveur démarré sur le port ${PORT}`);
+    });
+  });
+}
