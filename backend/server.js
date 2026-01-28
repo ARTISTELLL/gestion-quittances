@@ -12,9 +12,18 @@ const { createCheckoutSession } = require('./services/billingService');
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+app.set('trust proxy', 1);
 app.use(cors());
 app.use(express.json());
 app.use(express.static('public'));
+
+// URL de base pour les redirections OAuth (Vercel n'expose pas toujours req.protocol/host correctement)
+function getBaseUrl(req) {
+  if (process.env.VERCEL && process.env.VERCEL_URL) {
+    return `https://${process.env.VERCEL_URL}`;
+  }
+  return `${req.protocol}://${req.get('host')}`;
+}
 
 const DATA_DIR = path.join(__dirname, 'data');
 const LOCATAIRES_FILE = path.join(DATA_DIR, 'locataires.json');
@@ -278,7 +287,8 @@ app.post('/api/oauth/get-auth-url', async (req, res) => {
       return res.status(400).json({ error: 'Client ID et Client Secret requis' });
     }
     
-    const redirectUri = `${req.protocol}://${req.get('host')}/api/oauth/callback`;
+    const baseUrl = getBaseUrl(req);
+    const redirectUri = `${baseUrl}/api/oauth/callback`;
     const authUrl = getAuthUrl(clientId, clientSecret, redirectUri);
     
     res.json({ authUrl, redirectUri });
@@ -300,7 +310,8 @@ app.get('/api/oauth/callback', async (req, res) => {
       return res.status(400).send('Configuration OAuth2 incomplète');
     }
     
-    const redirectUri = `${req.protocol}://${req.get('host')}/api/oauth/callback`;
+    const baseUrl = getBaseUrl(req);
+    const redirectUri = `${baseUrl}/api/oauth/callback`;
     const tokens = await getTokenFromCode(
       code,
       config.email.oauth2.clientId,

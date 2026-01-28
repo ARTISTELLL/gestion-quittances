@@ -240,43 +240,52 @@ function App() {
   };
 
   const handleOAuthConnect = async () => {
-    if (!configData.email.oauth2.clientId || !configData.email.oauth2.clientSecret) {
+    const oauth2 = configData.email?.oauth2 || {};
+    if (!oauth2.clientId || !oauth2.clientSecret) {
       alert('Veuillez d\'abord entrer votre Client ID et Client Secret OAuth2');
       return;
     }
 
     setOauthConnecting(true);
     try {
-      // Sauvegarder la config avec les identifiants OAuth2
       await axios.put(`${API_URL}/config`, configData);
-      
-      // Obtenir l'URL d'autorisation
       const response = await axios.post(`${API_URL}/oauth/get-auth-url`, {
-        clientId: configData.email.oauth2.clientId,
-        clientSecret: configData.email.oauth2.clientSecret
+        clientId: oauth2.clientId,
+        clientSecret: oauth2.clientSecret
       });
-      
-      // Ouvrir la fenêtre d'autorisation
-      const authWindow = window.open(
-        response.data.authUrl,
-        'Gmail OAuth',
-        'width=600,height=700'
-      );
-      
-      // Vérifier périodiquement si la fenêtre est fermée
+
+      const authUrl = response.data?.authUrl;
+      if (!authUrl) {
+        setOauthConnecting(false);
+        alert('Le serveur n\'a pas renvoyé l\'URL d\'autorisation. Vérifiez que le backend est bien déployé et accessible.');
+        return;
+      }
+
+      const authWindow = window.open(authUrl, 'Gmail OAuth', 'width=600,height=700');
+      if (!authWindow) {
+        setOauthConnecting(false);
+        const openSame = window.confirm(
+          'La fenêtre popup a été bloquée. Souhaitez-vous ouvrir la connexion Gmail dans cet onglet ?'
+        );
+        if (openSame) window.location.href = authUrl;
+        return;
+      }
+
       const checkClosed = setInterval(() => {
         if (authWindow.closed) {
           clearInterval(checkClosed);
           setOauthConnecting(false);
-          // Recharger la config pour obtenir le refresh token
           loadConfig();
           alert('Autorisation terminée ! Testez la connexion pour vérifier.');
         }
       }, 1000);
-      
     } catch (error) {
       setOauthConnecting(false);
-      alert('Erreur: ' + (error.response?.data?.error || error.message));
+      const msg = error.response?.data?.error || error.message || 'Erreur inconnue';
+      const hint = error.response?.status === 404
+        ? '\n\nVérifiez que REACT_APP_API_URL pointe vers l\'URL de votre backend (ex. https://gestion-quittances-6psv.vercel.app/api) dans les variables d\'environnement du projet frontend Vercel.'
+        : '';
+      alert('Erreur lors de la connexion Gmail : ' + msg + hint);
     }
   };
 
