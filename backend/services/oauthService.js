@@ -20,14 +20,19 @@ function getOAuth2Client(clientId, clientSecret, redirectUri) {
 /**
  * Génère l'URL d'autorisation OAuth2
  */
-function getAuthUrl(clientId, clientSecret, redirectUri) {
+function getAuthUrl(clientId, clientSecret, redirectUri, state = null) {
   const oAuth2Client = getOAuth2Client(clientId, clientSecret, redirectUri);
   
-  return oAuth2Client.generateAuthUrl({
+  const params = {
     access_type: 'offline',
     scope: SCOPES,
     prompt: 'consent'
-  });
+  };
+  if (state) {
+    params.state = state;
+  }
+  
+  return oAuth2Client.generateAuthUrl(params);
 }
 
 /**

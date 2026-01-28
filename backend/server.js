@@ -1,13 +1,28 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const fs = require('fs-extra');
-const path = require('path');
+const bcrypt = require('bcrypt');
 const cron = require('node-cron');
 const { generateQuittance } = require('./services/pdfGenerator');
 const { sendEmail, testEmailConnection, sendSupportEmail } = require('./services/emailService');
 const { getAuthUrl, getTokenFromCode } = require('./services/oauthService');
 const { createCheckoutSession } = require('./services/billingService');
+const { requireAuth, generateToken } = require('./middleware/auth');
+const {
+  getConfig,
+  updateConfig,
+  getBiens,
+  createBien,
+  updateBien,
+  deleteBien,
+  getLocataires,
+  createLocataire,
+  updateLocataire,
+  deleteLocataire,
+  updateLocataireLastSent,
+  createUser,
+  getUserByEmail
+} = require('./database');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -25,153 +40,131 @@ function getBaseUrl(req) {
   return `${req.protocol}://${req.get('host')}`;
 }
 
-const DATA_DIR = path.join(__dirname, 'data');
-const LOCATAIRES_FILE = path.join(DATA_DIR, 'locataires.json');
-const BIENS_FILE = path.join(DATA_DIR, 'biens.json');
-const CONFIG_FILE = path.join(DATA_DIR, 'config.json');
-
-// Initialiser les fichiers de données
-async function initData() {
-  await fs.ensureDir(DATA_DIR);
-  
-  if (!await fs.pathExists(LOCATAIRES_FILE)) {
-    const defaultLocataires = [
-      { id: 1, nom: 'Locataire 1', prenom: '', email: '', loyer: 0, charges: 0, adresse: '', bienId: 1 },
-      { id: 2, nom: 'Locataire 2', prenom: '', email: '', loyer: 0, charges: 0, adresse: '', bienId: 1 },
-      { id: 3, nom: 'Locataire 3', prenom: '', email: '', loyer: 0, charges: 0, adresse: '', bienId: 1 },
-      { id: 4, nom: 'Locataire 4', prenom: '', email: '', loyer: 0, charges: 0, adresse: '', bienId: 1 },
-      { id: 5, nom: 'Locataire 5', prenom: '', email: '', loyer: 0, charges: 0, adresse: '', bienId: 1 }
-    ];
-    await fs.writeJson(LOCATAIRES_FILE, defaultLocataires);
-  } else {
-    // Migration douce : si certains locataires n'ont pas de bienId, les rattacher au bien 1 par défaut
-    try {
-      const locataires = await fs.readJson(LOCATAIRES_FILE);
-      let updated = false;
-      const migrated = locataires.map(l => {
-        if (l.bienId == null) {
-          updated = true;
-          return { ...l, bienId: 1 };
-        }
-        return l;
-      });
-      if (updated) {
-        await fs.writeJson(LOCATAIRES_FILE, migrated);
-      }
-    } catch (e) {
-      console.error('Erreur de migration des locataires (bienId) :', e.message);
-    }
-  }
-  
-  if (!await fs.pathExists(BIENS_FILE)) {
-    const defaultBiens = [
-      { id: 1, nom: 'Bien principal', adresse: '' }
-    ];
-    await fs.writeJson(BIENS_FILE, defaultBiens);
-  }
-  
-  if (!await fs.pathExists(CONFIG_FILE)) {
-    const defaultConfig = {
-      proprietaire: {
-        nom: '',
-        prenom: '',
-        adresse: '',
-        signature: ''
-      },
-      email: {
-        host: 'smtp.gmail.com',
-        port: 587,
-        user: '',
-        password: '',
-        from: '',
-        oauth2: {
-          clientId: '',
-          clientSecret: '',
-          refreshToken: ''
-        }
-      },
-      appName: 'Gestion Quittances'
-    };
-    await fs.writeJson(CONFIG_FILE, defaultConfig);
-  }
+// Initialisation DB (faite automatiquement par database.js)
+function initData() {
+  // Plus besoin d'initialiser les fichiers JSON, la DB le fait automatiquement
+  console.log('✅ Base de données prête');
 }
 
-// Routes API
-app.get('/api/locataires', async (req, res) => {
+// ==================== ROUTES D'AUTHENTIFICATION (PUBLIQUES) ====================
+
+// Inscription
+app.post('/api/auth/signup', async (req, res) => {
   try {
-    const locataires = await fs.readJson(LOCATAIRES_FILE);
-    res.json(locataires);
+    const { email, password } = req.body;
+    if (!email || !password || password.length < 6) {
+      return res.status(400).json({ error: 'Email et mot de passe (min 6 caractères) requis' });
+    }
+    const existing = await getUserByEmail(email);
+    if (existing) {
+      return res.status(400).json({ error: 'Cet email est déjà utilisé' });
+    }
+    const passwordHash = await bcrypt.hash(password, 10);
+    const userId = await createUser(email, passwordHash);
+    const token = generateToken(userId);
+    res.json({ token, userId, email });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
-app.post('/api/locataires', async (req, res) => {
+// Connexion
+app.post('/api/auth/login', async (req, res) => {
   try {
-    const locataires = await fs.readJson(LOCATAIRES_FILE);
-    const newId = Math.max(...locataires.map(l => l.id), 0) + 1;
-    // Affecter un bien par défaut si non fourni
+    const { email, password } = req.body;
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email et mot de passe requis' });
+    }
+    const user = await getUserByEmail(email);
+    if (!user) {
+      return res.status(401).json({ error: 'Email ou mot de passe incorrect' });
+    }
+    const valid = await bcrypt.compare(password, user.password_hash);
+    if (!valid) {
+      return res.status(401).json({ error: 'Email ou mot de passe incorrect' });
+    }
+    const token = generateToken(user.id);
+    res.json({ token, userId: user.id, email: user.email });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==================== ROUTES API PROTÉGÉES (REQUIÈRENT AUTHENTIFICATION) ====================
+
+// Locataires
+app.get('/api/locataires', requireAuth, async (req, res) => {
+  try {
+    const locataires = await getLocataires(req.userId);
+    // Convertir bien_id en bienId pour compatibilité frontend
+    res.json(locataires.map(l => ({
+      ...l,
+      bienId: l.bien_id,
+      lastQuittanceSentAt: l.last_quittance_sent_at
+    })));
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/locataires', requireAuth, async (req, res) => {
+  try {
     let bienId = req.body.bienId;
     if (bienId == null) {
-      const biens = await fs.readJson(BIENS_FILE);
-      bienId = biens[0]?.id || 1;
+      const biens = await getBiens(req.userId);
+      bienId = biens[0]?.id || null;
     }
-    const newLocataire = { id: newId, ...req.body, bienId };
-    locataires.push(newLocataire);
-    await fs.writeJson(LOCATAIRES_FILE, locataires);
-    res.json(newLocataire);
+    const newLocataire = await createLocataire(req.userId, { ...req.body, bienId });
+    res.json({ ...newLocataire, bienId: newLocataire.bien_id });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
-app.put('/api/locataires/:id', async (req, res) => {
+app.put('/api/locataires/:id', requireAuth, async (req, res) => {
   try {
-    const locataires = await fs.readJson(LOCATAIRES_FILE);
-    const index = locataires.findIndex(l => l.id === parseInt(req.params.id));
-    if (index === -1) {
+    await updateLocataire(req.userId, parseInt(req.params.id), req.body);
+    const locataires = await getLocataires(req.userId);
+    const updated = locataires.find(l => l.id === parseInt(req.params.id));
+    if (!updated) {
       return res.status(404).json({ error: 'Locataire non trouvé' });
     }
-    locataires[index] = { ...locataires[index], ...req.body };
-    await fs.writeJson(LOCATAIRES_FILE, locataires);
-    res.json(locataires[index]);
+    res.json({ ...updated, bienId: updated.bien_id, lastQuittanceSentAt: updated.last_quittance_sent_at });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
-app.delete('/api/locataires/:id', async (req, res) => {
+app.delete('/api/locataires/:id', requireAuth, async (req, res) => {
   try {
-    const locataires = await fs.readJson(LOCATAIRES_FILE);
-    const filtered = locataires.filter(l => l.id !== parseInt(req.params.id));
-    await fs.writeJson(LOCATAIRES_FILE, filtered);
+    await deleteLocataire(req.userId, parseInt(req.params.id));
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
-app.get('/api/config', async (req, res) => {
+app.get('/api/config', requireAuth, async (req, res) => {
   try {
-    const config = await fs.readJson(CONFIG_FILE);
+    const config = await getConfig(req.userId);
     res.json(config);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
-app.put('/api/config', async (req, res) => {
+app.put('/api/config', requireAuth, async (req, res) => {
   try {
-    await fs.writeJson(CONFIG_FILE, req.body);
+    await updateConfig(req.userId, req.body);
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
-app.post('/api/test-email', async (req, res) => {
+app.post('/api/test-email', requireAuth, async (req, res) => {
   try {
-    const config = await fs.readJson(CONFIG_FILE);
+    const config = await getConfig(req.userId);
     const result = await testEmailConnection(config);
     res.json(result);
   } catch (error) {
@@ -179,17 +172,14 @@ app.post('/api/test-email', async (req, res) => {
   }
 });
 
-app.post('/api/support-message', async (req, res) => {
+app.post('/api/support-message', requireAuth, async (req, res) => {
   try {
     const { nom, email, message } = req.body;
-
     if (!message || typeof message !== 'string' || message.trim().length < 5) {
       return res.status(400).json({ error: 'Message trop court.' });
     }
-
-    const config = await fs.readJson(CONFIG_FILE);
+    const config = await getConfig(req.userId);
     await sendSupportEmail({ nom, email, message }, config);
-
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -197,7 +187,7 @@ app.post('/api/support-message', async (req, res) => {
 });
 
 // Stripe Checkout – création d'une session d'abonnement
-app.post('/api/billing/create-checkout-session', async (req, res) => {
+app.post('/api/billing/create-checkout-session', requireAuth, async (req, res) => {
   try {
     const { priceId, successUrl, cancelUrl, customerEmail } = req.body;
 
@@ -216,71 +206,53 @@ app.post('/api/billing/create-checkout-session', async (req, res) => {
 });
 
 // Biens
-app.get('/api/biens', async (req, res) => {
+app.get('/api/biens', requireAuth, async (req, res) => {
   try {
-    const biens = await fs.readJson(BIENS_FILE);
+    const biens = await getBiens(req.userId);
     res.json(biens);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
-app.post('/api/biens', async (req, res) => {
+app.post('/api/biens', requireAuth, async (req, res) => {
   try {
     const { nom, adresse } = req.body;
     if (!nom || typeof nom !== 'string') {
       return res.status(400).json({ error: 'Nom du bien obligatoire.' });
     }
-    const biens = await fs.readJson(BIENS_FILE);
-    const newId = Math.max(...biens.map(b => b.id), 0) + 1;
-    const bien = { id: newId, nom, adresse: adresse || '' };
-    biens.push(bien);
-    await fs.writeJson(BIENS_FILE, biens);
+    const bien = await createBien(req.userId, { nom, adresse: adresse || '' });
     res.json(bien);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
-app.put('/api/biens/:id', async (req, res) => {
+app.put('/api/biens/:id', requireAuth, async (req, res) => {
   try {
-    const biens = await fs.readJson(BIENS_FILE);
-    const index = biens.findIndex(b => b.id === parseInt(req.params.id));
-    if (index === -1) {
+    await updateBien(req.userId, parseInt(req.params.id), req.body);
+    const biens = await getBiens(req.userId);
+    const updated = biens.find(b => b.id === parseInt(req.params.id));
+    if (!updated) {
       return res.status(404).json({ error: 'Bien non trouvé' });
     }
-    biens[index] = { ...biens[index], ...req.body, id: biens[index].id };
-    await fs.writeJson(BIENS_FILE, biens);
-    res.json(biens[index]);
+    res.json(updated);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
-app.delete('/api/biens/:id', async (req, res) => {
+app.delete('/api/biens/:id', requireAuth, async (req, res) => {
   try {
-    const biens = await fs.readJson(BIENS_FILE);
-    const id = parseInt(req.params.id);
-    const bien = biens.find(b => b.id === id);
-    if (!bien) {
-      return res.status(404).json({ error: 'Bien non trouvé' });
-    }
-    // Vérifier qu'aucun locataire n'est rattaché à ce bien
-    const locataires = await fs.readJson(LOCATAIRES_FILE);
-    const hasLocataires = locataires.some(l => l.bienId === id);
-    if (hasLocataires) {
-      return res.status(400).json({ error: 'Impossible de supprimer un bien qui a encore des locataires rattachés.' });
-    }
-    const filtered = biens.filter(b => b.id !== id);
-    await fs.writeJson(BIENS_FILE, filtered);
+    await deleteBien(req.userId, parseInt(req.params.id));
     res.json({ success: true });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(400).json({ error: error.message });
   }
 });
 
 // Route pour obtenir l'URL d'autorisation OAuth2 (Client ID/Secret lus depuis les variables d'env du serveur)
-app.post('/api/oauth/get-auth-url', async (req, res) => {
+app.post('/api/oauth/get-auth-url', requireAuth, async (req, res) => {
   try {
     const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID;
     const clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
@@ -291,24 +263,31 @@ app.post('/api/oauth/get-auth-url', async (req, res) => {
     }
     const baseUrl = getBaseUrl(req);
     const redirectUri = `${baseUrl}/api/oauth/callback`;
-    const authUrl = getAuthUrl(clientId, clientSecret, redirectUri);
+    // Inclure userId dans state pour que le callback sache quel utilisateur connecter
+    const state = String(req.userId);
+    const authUrl = getAuthUrl(clientId, clientSecret, redirectUri, state);
     res.json({ authUrl, redirectUri });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
-// Route de callback OAuth2
+// Route de callback OAuth2 (PUBLIQUE - appelée par Google après autorisation)
 app.get('/api/oauth/callback', async (req, res) => {
   try {
-    const { code } = req.query;
+    const { code, state } = req.query;
     if (!code) {
       return res.status(400).send('Code d\'autorisation manquant');
     }
+    // state contient le userId encodé (envoyé depuis le frontend)
+    if (!state) {
+      return res.status(400).send('State manquant (userId requis)');
+    }
+    const userId = parseInt(state);
+    if (!userId || isNaN(userId)) {
+      return res.status(400).send('UserId invalide');
+    }
     
-    const config = await fs.readJson(CONFIG_FILE);
-    if (!config.email) config.email = {};
-    if (!config.email.oauth2) config.email.oauth2 = {};
     const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID;
     const clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
     if (!clientId || !clientSecret) {
@@ -318,9 +297,10 @@ app.get('/api/oauth/callback', async (req, res) => {
     const redirectUri = `${baseUrl}/api/oauth/callback`;
     const tokens = await getTokenFromCode(code, clientId, clientSecret, redirectUri);
     
-    // Sauvegarder le refresh token dans la config
+    // Sauvegarder le refresh token dans la config de l'utilisateur
+    const config = await getConfig(userId);
     config.email.oauth2.refreshToken = tokens.refresh_token;
-    await fs.writeJson(CONFIG_FILE, config);
+    updateConfig(userId, config);
     
     res.send(`
       <html>
@@ -369,49 +349,38 @@ app.post('/api/oauth/exchange-code', async (req, res) => {
   }
 });
 
-app.post('/api/generate-quittance', async (req, res) => {
+app.post('/api/generate-quittance', requireAuth, async (req, res) => {
   try {
     const { locataireId, mois, annee } = req.body;
-    const locataires = await fs.readJson(LOCATAIRES_FILE);
-    const config = await fs.readJson(CONFIG_FILE);
+    const locataires = await getLocataires(req.userId);
     const locataire = locataires.find(l => l.id === locataireId);
-    
     if (!locataire) {
       return res.status(404).json({ error: 'Locataire non trouvé' });
     }
-    
-    const pdfPath = await generateQuittance(locataire, config, mois, annee);
+    const config = await getConfig(req.userId);
+    const pdfPath = await generateQuittance({ ...locataire, bienId: locataire.bien_id }, config, mois, annee);
     res.json({ pdfPath, success: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
-app.post('/api/send-quittance', async (req, res) => {
+app.post('/api/send-quittance', requireAuth, async (req, res) => {
   try {
     const { locataireId, mois, annee } = req.body;
-    const locataires = await fs.readJson(LOCATAIRES_FILE);
-    const config = await fs.readJson(CONFIG_FILE);
+    const locataires = await getLocataires(req.userId);
     const locataire = locataires.find(l => l.id === locataireId);
-    
     if (!locataire) {
       return res.status(404).json({ error: 'Locataire non trouvé' });
     }
-    
     if (!locataire.email) {
       return res.status(400).json({ error: 'Email du locataire non renseigné' });
     }
-    
-    const pdfPath = await generateQuittance(locataire, config, mois, annee);
-    await sendEmail(locataire, config, pdfPath, mois, annee);
-
-    // Mettre à jour la date du dernier envoi de quittance
+    const config = await getConfig(req.userId);
+    const pdfPath = await generateQuittance({ ...locataire, bienId: locataire.bien_id }, config, mois, annee);
+    await sendEmail({ ...locataire, bienId: locataire.bien_id }, config, pdfPath, mois, annee);
     const nowIso = new Date().toISOString();
-    const updatedLocataires = locataires.map(l =>
-      l.id === locataireId ? { ...l, lastQuittanceSentAt: nowIso } : l
-    );
-    await fs.writeJson(LOCATAIRES_FILE, updatedLocataires);
-    
+    await updateLocataireLastSent(req.userId, locataireId, nowIso);
     res.json({ success: true, lastQuittanceSentAt: nowIso });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -419,12 +388,11 @@ app.post('/api/send-quittance', async (req, res) => {
 });
 
 // Export comptable (CSV)
-app.get('/api/exports/compta', async (req, res) => {
+app.get('/api/exports/compta', requireAuth, async (req, res) => {
   try {
     const { bienId, from, to } = req.query;
-
-    const locataires = await fs.readJson(LOCATAIRES_FILE);
-    const biens = await fs.readJson(BIENS_FILE);
+    const locataires = await getLocataires(req.userId);
+    const biens = await getBiens(req.userId);
 
     let fromDate = null;
     let toDate = null;
@@ -464,9 +432,9 @@ app.get('/api/exports/compta', async (req, res) => {
       if (fromDate && d < fromDate) continue;
       if (toDate && d > toDate) continue;
 
-      if (bienId && String(locataire.bienId) !== String(bienId)) continue;
+      if (bienId && String(locataire.bien_id) !== String(bienId)) continue;
 
-      const bien = biens.find(b => b.id === locataire.bienId);
+      const bien = biens.find(b => b.id === locataire.bien_id);
 
       const day = String(d.getDate()).padStart(2, '0');
       const month = String(d.getMonth() + 1).padStart(2, '0');
@@ -521,85 +489,51 @@ app.get('/api/exports/compta', async (req, res) => {
 });
 
 // Envoi de quittances sur une plage de dates (par mois)
-app.post('/api/send-quittances-range', async (req, res) => {
+app.post('/api/send-quittances-range', requireAuth, async (req, res) => {
   try {
     const { locataireId, from, to } = req.body;
-
     if (!locataireId || !from || !to) {
       return res.status(400).json({ error: 'Paramètres manquants (locataireId, from, to).' });
     }
-
     const fromDate = new Date(from);
     const toDate = new Date(to);
-
     if (isNaN(fromDate.getTime()) || isNaN(toDate.getTime())) {
       return res.status(400).json({ error: 'Dates invalides.' });
     }
-
     if (fromDate > toDate) {
       return res.status(400).json({ error: 'La date de début doit être avant la date de fin.' });
     }
-
-    const locataires = await fs.readJson(LOCATAIRES_FILE);
-    const config = await fs.readJson(CONFIG_FILE);
+    const locataires = await getLocataires(req.userId);
     const locataire = locataires.find((l) => l.id === locataireId);
-
     if (!locataire) {
       return res.status(404).json({ error: 'Locataire non trouvé' });
     }
-
     if (!locataire.email) {
       return res.status(400).json({ error: 'Email du locataire non renseigné' });
     }
-
-    // Normaliser au premier jour du mois de départ
+    const config = await getConfig(req.userId);
     let current = new Date(fromDate.getFullYear(), fromDate.getMonth(), 1);
     const end = new Date(toDate.getFullYear(), toDate.getMonth(), 1);
-
     let sentCount = 0;
     let lastSentDate = null;
-
     while (current <= end) {
       const mois = current.toLocaleString('fr-FR', { month: 'long' });
       const annee = current.getFullYear();
-
       try {
-        const pdfPath = await generateQuittance(locataire, config, mois, annee);
-        await sendEmail(
-          locataire,
-          config,
-          pdfPath,
-          mois,
-          annee
-        );
-        // On considère la date de quittance = dernier jour du mois concerné
+        const pdfPath = await generateQuittance({ ...locataire, bienId: locataire.bien_id }, config, mois, annee);
+        await sendEmail({ ...locataire, bienId: locataire.bien_id }, config, pdfPath, mois, annee);
         const dernierJour = new Date(annee, current.getMonth() + 1, 0);
         lastSentDate = dernierJour;
         sentCount += 1;
       } catch (e) {
         console.error(`Erreur lors de l'envoi du mois ${mois} ${annee} pour le locataire ${locataireId}:`, e.message);
-        // On continue avec les autres mois
       }
-
-      // Mois suivant
       current = new Date(current.getFullYear(), current.getMonth() + 1, 1);
     }
-
-    // Mettre à jour la dernière date de quittance envoyée si au moins une a été envoyée
     if (sentCount > 0 && lastSentDate) {
-      const nowIso = lastSentDate.toISOString();
-      const updatedLocataires = locataires.map((l) =>
-        l.id === locataireId ? { ...l, lastQuittanceSentAt: nowIso } : l
-      );
-      await fs.writeJson(LOCATAIRES_FILE, updatedLocataires);
+      await updateLocataireLastSent(req.userId, locataireId, lastSentDate.toISOString());
     }
-
-    res.json({
-      success: true,
-      sentCount,
-      from: fromDate.toISOString(),
-      to: toDate.toISOString()
-    });
+    res.json({ success: true, sentCount, from: fromDate.toISOString(), to: toDate.toISOString() });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -612,28 +546,30 @@ if (!process.env.VERCEL) {
   cron.schedule('0 9 1 * *', async () => {
     try {
       console.log('Génération automatique des quittances...');
-      const locataires = await fs.readJson(LOCATAIRES_FILE);
-      const config = await fs.readJson(CONFIG_FILE);
+      const singleUserId = process.env.CRON_USER_ID ? parseInt(process.env.CRON_USER_ID, 10) : null;
+      if (!singleUserId || Number.isNaN(singleUserId)) {
+        console.log('Aucun CRON_USER_ID défini, tâche planifiée ignorée.');
+        return;
+      }
+
+      const config = await getConfig(singleUserId);
+      const locataires = await getLocataires(singleUserId);
       const now = new Date();
       const mois = now.toLocaleString('fr-FR', { month: 'long' });
       const annee = now.getFullYear();
-      
-      const updatedLocataires = [...locataires];
 
-      for (const locataire of updatedLocataires) {
-        if (locataire.email && locataire.loyer > 0) {
+      for (const locataire of locataires) {
+        if (locataire.email && Number(locataire.loyer || 0) > 0) {
           try {
-            const pdfPath = await generateQuittance(locataire, config, mois, annee);
-            await sendEmail(locataire, config, pdfPath, mois, annee);
-            locataire.lastQuittanceSentAt = new Date().toISOString();
-            console.log(`Quittance envoyée à ${locataire.nom} ${locataire.prenom}`);
+            const pdfPath = await generateQuittance({ ...locataire, bienId: locataire.bien_id }, config, mois, annee);
+            await sendEmail({ ...locataire, bienId: locataire.bien_id }, config, pdfPath, mois, annee);
+            await updateLocataireLastSent(singleUserId, locataire.id, new Date().toISOString());
+            console.log(`Quittance envoyée à ${locataire.nom} ${locataire.prenom} (user ${singleUserId})`);
           } catch (error) {
-            console.error(`Erreur pour ${locataire.nom}:`, error.message);
+            console.error(`Erreur pour ${locataire.nom} (user ${singleUserId}):`, error.message);
           }
         }
       }
-
-      await fs.writeJson(LOCATAIRES_FILE, updatedLocataires);
     } catch (error) {
       console.error('Erreur lors de la génération automatique:', error);
     }
@@ -645,9 +581,8 @@ module.exports = { app, initData };
 
 // Démarrage du serveur uniquement en mode "classique" (non Vercel)
 if (!process.env.VERCEL) {
-  initData().then(() => {
-    app.listen(PORT, () => {
-      console.log(`Serveur démarré sur le port ${PORT}`);
-    });
+  initData();
+  app.listen(PORT, () => {
+    console.log(`Serveur démarré sur le port ${PORT}`);
   });
 }
