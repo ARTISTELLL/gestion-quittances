@@ -37,6 +37,9 @@ function App() {
 
   const currentYear = new Date().getFullYear();
 
+  // Toujours travailler avec un tableau pour l'affichage
+  const locatairesList = Array.isArray(locataires) ? locataires : [];
+
   // Chargement initial des données au montage
   useEffect(() => {
     const init = async () => {
@@ -418,7 +421,7 @@ function App() {
         </div>
 
         <div className="locataires-grid">
-          {Array.isArray(locataires) && locataires.map((locataire) => {
+          {locatairesList.map((locataire) => {
             const bien = biens.find((b) => b.id === locataire.bienId);
             return (
             <div key={locataire.id} className="locataire-card">
