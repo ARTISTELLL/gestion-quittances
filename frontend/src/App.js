@@ -80,8 +80,24 @@ function App() {
   const loadConfig = async () => {
     try {
       const response = await axios.get(`${API_URL}/config`);
-      setConfigData(response.data);
-      setConfig(response.data);
+      const serverConfig = response.data || {};
+      setConfigData((prev) => ({
+        ...prev,
+        ...serverConfig,
+        proprietaire: {
+          ...prev.proprietaire,
+          ...(serverConfig.proprietaire || {})
+        },
+        email: {
+          ...prev.email,
+          ...(serverConfig.email || {}),
+          oauth2: {
+            ...prev.email.oauth2,
+            ...(serverConfig.email?.oauth2 || {})
+          }
+        }
+      }));
+      setConfig(serverConfig);
     } catch (error) {
       console.error('Erreur lors du chargement de la config:', error);
     }
@@ -588,33 +604,33 @@ function App() {
                 <label>Nom</label>
                 <input
                   type="text"
-                  value={configData.proprietaire.nom}
-                  onChange={(e) => setConfigData({
-                    ...configData,
-                    proprietaire: { ...configData.proprietaire, nom: e.target.value }
-                  })}
+                  value={configData.proprietaire?.nom || ''}
+                  onChange={(e) => setConfigData((prev) => ({
+                    ...prev,
+                    proprietaire: { ...(prev.proprietaire || {}), nom: e.target.value }
+                  }))}
                 />
               </div>
               <div className="form-group">
                 <label>Prénom</label>
                 <input
                   type="text"
-                  value={configData.proprietaire.prenom}
-                  onChange={(e) => setConfigData({
-                    ...configData,
-                    proprietaire: { ...configData.proprietaire, prenom: e.target.value }
-                  })}
+                  value={configData.proprietaire?.prenom || ''}
+                  onChange={(e) => setConfigData((prev) => ({
+                    ...prev,
+                    proprietaire: { ...(prev.proprietaire || {}), prenom: e.target.value }
+                  }))}
                 />
               </div>
               <div className="form-group">
                 <label>Adresse</label>
                 <input
                   type="text"
-                  value={configData.proprietaire.adresse}
-                  onChange={(e) => setConfigData({
-                    ...configData,
-                    proprietaire: { ...configData.proprietaire, adresse: e.target.value }
-                  })}
+                  value={configData.proprietaire?.adresse || ''}
+                  onChange={(e) => setConfigData((prev) => ({
+                    ...prev,
+                    proprietaire: { ...(prev.proprietaire || {}), adresse: e.target.value }
+                  }))}
                 />
               </div>
               <div className="form-group">
