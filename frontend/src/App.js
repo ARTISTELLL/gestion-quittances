@@ -418,9 +418,9 @@ function App() {
         </div>
 
         <div className="locataires-grid">
-          {locataires.map((locataire) => {
-              const bien = biens.find((b) => b.id === locataire.bienId);
-              return (
+          {Array.isArray(locataires) && locataires.map((locataire) => {
+            const bien = biens.find((b) => b.id === locataire.bienId);
+            return (
             <div key={locataire.id} className="locataire-card">
               <div className="locataire-header">
                 <h3>{locataire.nom} {locataire.prenom}</h3>
