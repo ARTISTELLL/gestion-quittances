@@ -5,6 +5,19 @@ import './App.css';
 const API_URL = process.env.REACT_APP_API_URL || (window.location.hostname === 'localhost' ? 'http://localhost:3001/api' : '/api');
 
 function App() {
+  // ==== AUTH ====
+  const [authMode, setAuthMode] = useState('login'); // 'login' ou 'signup'
+  const [authForm, setAuthForm] = useState({ email: '', password: '' });
+  const [authError, setAuthError] = useState('');
+  const [authLoading, setAuthLoading] = useState(false);
+  const [token, setToken] = useState(() => {
+    try {
+      return localStorage.getItem('authToken') || '';
+    } catch {
+      return '';
+    }
+  });
+
   const [locataires, setLocataires] = useState([]);
   const [biens, setBiens] = useState([]);
   const [config, setConfig] = useState(null);
@@ -40,10 +53,20 @@ function App() {
   // Toujours travailler avec un tableau pour l'affichage
   const locatairesList = Array.isArray(locataires) ? locataires : [];
 
+  // Mettre à jour le header Authorization global d'axios dès qu'on a un token
+  useEffect(() => {
+    if (token) {
+      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+    } else {
+      delete axios.defaults.headers.common['Authorization'];
+    }
+  }, [token]);
+
   // Chargement initial des données au montage
   useEffect(() => {
     const init = async () => {
       try {
+        if (!token) return;
         await loadLocataires();
         await loadBiens();
         await loadConfig();
@@ -53,10 +76,11 @@ function App() {
     };
     init();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [token]);
 
   const loadLocataires = async () => {
     try {
+      if (!token) return;
       const response = await axios.get(`${API_URL}/locataires`);
       setLocataires(response.data);
     } catch (error) {
@@ -66,6 +90,7 @@ function App() {
 
   const loadBiens = async () => {
     try {
+      if (!token) return;
       const response = await axios.get(`${API_URL}/biens`);
       setBiens(response.data);
       // Si aucun bien sélectionné, prendre le premier par défaut pour le formulaire
@@ -79,6 +104,7 @@ function App() {
 
   const loadConfig = async () => {
     try {
+      if (!token) return;
       const response = await axios.get(`${API_URL}/config`);
       const serverConfig = response.data || {};
       setConfigData((prev) => ({
@@ -106,6 +132,10 @@ function App() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
+      if (!token) {
+        alert('Vous devez être connecté pour gérer les locataires.');
+        return;
+      }
       const data = {
         ...formData,
         loyer: parseFloat(formData.loyer) || 0,
@@ -153,6 +183,10 @@ function App() {
   const handleDelete = async (id) => {
     if (window.confirm('Êtes-vous sûr de vouloir supprimer ce locataire ?')) {
       try {
+        if (!token) {
+          alert('Vous devez être connecté pour gérer les locataires.');
+          return;
+        }
         await axios.delete(`${API_URL}/locataires/${id}`);
         loadLocataires();
       } catch (error) {
@@ -168,6 +202,10 @@ function App() {
     }
 
     try {
+      if (!token) {
+        alert('Vous devez être connecté pour envoyer des quittances.');
+        return;
+      }
       setSendingQuittanceId(locataireId);
       const now = new Date();
       const mois = now.toLocaleString('fr-FR', { month: 'long' });
@@ -210,6 +248,10 @@ function App() {
   const handleConfigSubmit = async (e) => {
     e.preventDefault();
     try {
+      if (!token) {
+        alert('Vous devez être connecté pour modifier la configuration.');
+        return;
+      }
       await axios.put(`${API_URL}/config`, configData);
       setShowConfigModal(false);
       loadConfig();
@@ -225,6 +267,10 @@ function App() {
     setTestingEmail(true);
     setEmailTestResult(null);
     try {
+      if (!token) {
+        alert('Vous devez être connecté pour tester la connexion email.');
+        return;
+      }
       // Sauvegarder temporairement la config pour le test
       await axios.put(`${API_URL}/config`, configData);
       const response = await axios.post(`${API_URL}/test-email`);
@@ -240,6 +286,10 @@ function App() {
   };
 
   const handleOAuthConnect = async () => {
+    if (!token) {
+      alert('Vous devez être connecté pour lier votre compte Gmail.');
+      return;
+    }
     if (!configData.email?.user?.trim()) {
       alert('Veuillez d\'abord entrer votre adresse Gmail (champ « Email Gmail ») ci-dessus.');
       return;
@@ -294,6 +344,11 @@ function App() {
 
     try {
       setHelpSending(true);
+      if (!token) {
+        alert('Vous devez être connecté pour envoyer une demande d’aide.');
+        setHelpSending(false);
+        return;
+      }
       await axios.post(`${API_URL}/support-message`, helpForm);
       setHelpSending(false);
       setShowHelpModal(false);
@@ -321,6 +376,10 @@ function App() {
     }
 
     try {
+      if (!token) {
+        alert('Vous devez être connecté pour envoyer plusieurs quittances.');
+        return;
+      }
       const response = await axios.post(`${API_URL}/send-quittances-range`, {
         locataireId: locataire.id,
         from,
@@ -341,6 +400,10 @@ function App() {
 
   const handleExportCompta = async () => {
     try {
+      if (!token) {
+        alert('Vous devez être connecté pour exporter la comptabilité.');
+        return;
+      }
       const params = new URLSearchParams();
       if (exportFrom) params.append('from', exportFrom);
       if (exportTo) params.append('to', exportTo);
@@ -366,6 +429,10 @@ function App() {
 
   const handleSubscribe = async () => {
     try {
+      if (!token) {
+        alert('Vous devez être connecté pour gérer votre abonnement.');
+        return;
+      }
       const response = await axios.post(`${API_URL}/billing/create-checkout-session`, {
         priceId: process.env.REACT_APP_STRIPE_PRICE_ID || undefined,
         customerEmail: config?.email?.user || undefined,
@@ -383,6 +450,53 @@ function App() {
     }
   };
 
+  // === Gestion inscription / connexion ===
+  const handleAuthSubmit = async (e) => {
+    e.preventDefault();
+    setAuthError('');
+    setAuthLoading(true);
+    try {
+      const endpoint = authMode === 'signup' ? '/auth/signup' : '/auth/login';
+      const response = await axios.post(`${API_URL}${endpoint}`, {
+        email: authForm.email,
+        password: authForm.password
+      });
+
+      const receivedToken = response.data?.token;
+      if (!receivedToken) {
+        throw new Error('Token non reçu depuis le serveur.');
+      }
+      setToken(receivedToken);
+      try {
+        localStorage.setItem('authToken', receivedToken);
+      } catch {
+        // ignore
+      }
+      setAuthForm({ email: '', password: '' });
+      await loadLocataires();
+      await loadBiens();
+      await loadConfig();
+    } catch (error) {
+      console.error('Erreur auth:', error);
+      const msg = error.response?.data?.error || error.message || 'Erreur de connexion';
+      setAuthError(msg);
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleLogout = () => {
+    setToken('');
+    try {
+      localStorage.removeItem('authToken');
+    } catch {
+      // ignore
+    }
+    setLocataires([]);
+    setBiens([]);
+    setConfig(null);
+  };
+
   return (
     <div className="App">
       <header className="app-header">
@@ -391,19 +505,85 @@ function App() {
           <span className="brand-subtitle">Une application DaniCorp°</span>
         </div>
         <div className="header-actions">
-          <button className="btn-secondary" onClick={handleSubscribe}>
-            S’abonner (Stripe)
-          </button>
-          <button className="btn-help" onClick={() => setShowHelpModal(true)}>
-            Aide / Support
-          </button>
-          <button className="btn-config" onClick={() => setShowConfigModal(true)}>
-            ⚙️ Configuration
-          </button>
+          {token && (
+            <>
+              <button className="btn-secondary" onClick={handleSubscribe}>
+                S’abonner (Stripe)
+              </button>
+              <button className="btn-help" onClick={() => setShowHelpModal(true)}>
+                Aide / Support
+              </button>
+              <button className="btn-config" onClick={() => setShowConfigModal(true)}>
+                ⚙️ Configuration
+              </button>
+              <button className="btn-help" onClick={handleLogout}>
+                Se déconnecter
+              </button>
+            </>
+          )}
         </div>
       </header>
 
       <main className="main-content">
+        {!token && (
+          <section className="auth-section" aria-label="Connexion ou inscription">
+            <div className="auth-card">
+              <div className="auth-tabs">
+                <button
+                  type="button"
+                  className={authMode === 'login' ? 'auth-tab active' : 'auth-tab'}
+                  onClick={() => { setAuthMode('login'); setAuthError(''); }}
+                >
+                  Connexion
+                </button>
+                <button
+                  type="button"
+                  className={authMode === 'signup' ? 'auth-tab active' : 'auth-tab'}
+                  onClick={() => { setAuthMode('signup'); setAuthError(''); }}
+                >
+                  Inscription
+                </button>
+              </div>
+              <form onSubmit={handleAuthSubmit} className="auth-form">
+                <div className="form-group">
+                  <label>Email</label>
+                  <input
+                    type="email"
+                    required
+                    value={authForm.email}
+                    onChange={(e) => setAuthForm({ ...authForm, email: e.target.value })}
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Mot de passe</label>
+                  <input
+                    type="password"
+                    required
+                    minLength={6}
+                    value={authForm.password}
+                    onChange={(e) => setAuthForm({ ...authForm, password: e.target.value })}
+                  />
+                </div>
+                {authError && (
+                  <div className="auth-error">
+                    {authError}
+                  </div>
+                )}
+                <button type="submit" className="btn-primary" disabled={authLoading}>
+                  {authLoading
+                    ? 'Veuillez patienter...'
+                    : authMode === 'signup'
+                      ? 'Créer mon compte'
+                      : 'Se connecter'}
+                </button>
+              </form>
+              <p className="auth-hint">
+                Une fois connecté, vous pourrez ajouter vos locataires, connecter Gmail et envoyer les quittances.
+              </p>
+            </div>
+          </section>
+        )}
+
         <section className="hero">
           <div className="hero-content">
             <div className="hero-text">
@@ -420,6 +600,7 @@ function App() {
           </div>
         </section>
 
+        {token && (
         <div className="locataires-header">
           <div className="locataires-header-left">
             <h2>Locataires</h2>
@@ -440,7 +621,9 @@ function App() {
             + Ajouter un locataire
           </button>
         </div>
+        )}
 
+        {token && (
         <div className="locataires-grid">
           {locatairesList.map((locataire) => {
             const bien = biens.find((b) => b.id === locataire.bienId);
@@ -491,7 +674,9 @@ function App() {
           );
         })}
         </div>
+        )}
 
+        {token && (
         <div className="export-bar">
           <div className="export-filters">
             <label>
@@ -515,6 +700,7 @@ function App() {
             </button>
           </div>
         </div>
+        )}
       </main>
 
       {showModal && (
