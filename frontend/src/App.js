@@ -17,6 +17,13 @@ function App() {
       return '';
     }
   });
+  const [authUserEmail, setAuthUserEmail] = useState(() => {
+    try {
+      return localStorage.getItem('authUserEmail') || '';
+    } catch {
+      return '';
+    }
+  });
 
   const [locataires, setLocataires] = useState([]);
   const [biens, setBiens] = useState([]);
@@ -467,8 +474,11 @@ function App() {
         throw new Error('Token non reçu depuis le serveur.');
       }
       setToken(receivedToken);
+      const email = response.data?.email || '';
+      setAuthUserEmail(email);
       try {
         localStorage.setItem('authToken', receivedToken);
+        if (email) localStorage.setItem('authUserEmail', email);
       } catch {
         // ignore
       }
@@ -487,8 +497,10 @@ function App() {
 
   const handleLogout = () => {
     setToken('');
+    setAuthUserEmail('');
     try {
       localStorage.removeItem('authToken');
+      localStorage.removeItem('authUserEmail');
     } catch {
       // ignore
     }
@@ -526,7 +538,8 @@ function App() {
 
       <main className="main-content">
         {!token && (
-          <section className="auth-section" aria-label="Connexion ou inscription">
+          <section id="connexion" className="auth-section auth-page" aria-label="Connexion ou inscription">
+            <h1 className="auth-page-title">Connexion / Inscription</h1>
             <div className="auth-card">
               <div className="auth-tabs">
                 <button

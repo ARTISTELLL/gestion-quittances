@@ -240,11 +240,19 @@ async function createUser(email, passwordHash) {
 
 async function getUserByEmail(email) {
   const client = ensureClient();
-  const { data, error } = await client
-    .from('users')
-    .select('*')
-    .eq('email', email)
-    .maybeSingle();
+  let data, error;
+  try {
+    const result = await client
+      .from('users')
+      .select('*')
+      .eq('email', email)
+      .maybeSingle();
+    data = result.data;
+    error = result.error;
+  } catch (err) {
+    const cause = err.cause ? ` (${err.cause.message || err.cause})` : '';
+    throw new Error(`Erreur getUserByEmail: ${err.message}${cause}. Vérifiez SUPABASE_URL et SUPABASE_SERVICE_ROLE_KEY (backend / Vercel).`);
+  }
   if (error) throw new Error(`Erreur getUserByEmail: ${error.message}`);
   return data || null;
 }
