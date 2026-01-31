@@ -129,7 +129,7 @@ async function sendEmail(locataire, config, pdfPath, mois, annee) {
 async function sendWelcomeEmail(payload) {
   const transporter = await initAppTransporter();
   if (!transporter) {
-    return false;
+    throw new Error('Email app non configuré (APP_EMAIL_USER / APP_EMAIL_OAUTH_REFRESH_TOKEN manquants)');
   }
 
   const { email, appName } = payload;
@@ -153,7 +153,7 @@ async function sendWelcomeEmail(payload) {
 async function sendPasswordResetEmail(payload) {
   const transporter = await initAppTransporter();
   if (!transporter) {
-    return false;
+    throw new Error('Email app non configuré (APP_EMAIL_USER / APP_EMAIL_OAUTH_REFRESH_TOKEN manquants)');
   }
 
   const { email, appName, resetUrl } = payload;
