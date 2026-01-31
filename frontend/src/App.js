@@ -24,7 +24,6 @@ function App() {
       return '';
     }
   });
-
   const [locataires, setLocataires] = useState([]);
   const [biens, setBiens] = useState([]);
   const [config, setConfig] = useState(null);
@@ -519,6 +518,9 @@ function App() {
         <div className="header-actions">
           {token && (
             <>
+              {authUserEmail && (
+                <span className="auth-user-email">Connecté : {authUserEmail}</span>
+              )}
               <button className="btn-secondary" onClick={handleSubscribe}>
                 S’abonner (Stripe)
               </button>
