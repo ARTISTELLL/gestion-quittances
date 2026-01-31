@@ -395,27 +395,40 @@ app.get('/api/oauth/callback', async (req, res) => {
     config.email.oauth2.refreshToken = tokens.refresh_token;
     updateConfig(userId, config);
     
+    const frontendUrl = getFrontendBaseUrl(req);
     res.send(`
       <html>
         <head><title>Autorisation réussie</title></head>
         <body style="font-family: Arial, sans-serif; text-align: center; padding: 50px;">
           <h1 style="color: green;">✅ Autorisation Gmail réussie !</h1>
           <p>Vous pouvez fermer cette fenêtre et retourner à l'application.</p>
+          <p>
+            <a href="${frontendUrl}" style="color: #007bff; text-decoration: underline;">
+              Retourner à l'application
+            </a>
+          </p>
           <script>
             setTimeout(() => {
               window.close();
+              window.location.href = "${frontendUrl}";
             }, 2000);
           </script>
         </body>
       </html>
     `);
   } catch (error) {
+    const frontendUrl = getFrontendBaseUrl(req);
     res.status(500).send(`
       <html>
         <head><title>Erreur</title></head>
         <body style="font-family: Arial, sans-serif; text-align: center; padding: 50px;">
           <h1 style="color: red;">❌ Erreur lors de l'autorisation</h1>
           <p>${error.message}</p>
+          <p>
+            <a href="${frontendUrl}" style="color: #007bff; text-decoration: underline;">
+              Retourner à l'application
+            </a>
+          </p>
         </body>
       </html>
     `);
