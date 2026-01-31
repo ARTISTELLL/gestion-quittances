@@ -32,6 +32,11 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static('public'));
 
+// Health check simple pour tester le backend en GET
+app.get('/api/health', (req, res) => {
+  res.json({ ok: true });
+});
+
 // URL de base pour les redirections OAuth (Vercel n'expose pas toujours req.protocol/host correctement)
 function getBaseUrl(req) {
   if (process.env.VERCEL && process.env.VERCEL_URL) {
