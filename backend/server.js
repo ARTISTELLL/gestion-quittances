@@ -4,7 +4,13 @@ const cors = require('cors');
 const bcrypt = require('bcrypt');
 const cron = require('node-cron');
 const { generateQuittance } = require('./services/pdfGenerator');
-const { sendEmail, testEmailConnection, sendSupportEmail } = require('./services/emailService');
+const {
+  sendEmail,
+  sendWelcomeEmail,
+  sendPasswordResetEmail,
+  testEmailConnection,
+  sendSupportEmail
+} = require('./services/emailService');
 const { getAuthUrl, getTokenFromCode } = require('./services/oauthService');
 const { createCheckoutSession } = require('./services/billingService');
 const { requireAuth, generateToken } = require('./middleware/auth');
@@ -21,8 +27,13 @@ const {
   deleteLocataire,
   updateLocataireLastSent,
   createUser,
-  getUserByEmail
+  getUserByEmail,
+  updateUserPassword,
+  createPasswordReset,
+  getPasswordResetByToken,
+  markPasswordResetUsed
 } = require('./database');
+const crypto = require('crypto');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -43,6 +54,16 @@ function getBaseUrl(req) {
     return `https://${process.env.VERCEL_URL}`;
   }
   return `${req.protocol}://${req.get('host')}`;
+}
+
+function getFrontendBaseUrl(req) {
+  if (process.env.FRONTEND_URL) {
+    return process.env.FRONTEND_URL.replace(/\/+$/, '');
+  }
+  if (process.env.PUBLIC_URL) {
+    return process.env.PUBLIC_URL.replace(/\/+$/, '');
+  }
+  return getBaseUrl(req);
 }
 
 // Initialisation DB (faite automatiquement par database.js)
@@ -67,6 +88,11 @@ app.post('/api/auth/signup', async (req, res) => {
     const passwordHash = await bcrypt.hash(password, 10);
     const userId = await createUser(email, passwordHash);
     const token = generateToken(userId);
+    try {
+      await sendWelcomeEmail({ email, appName: 'Gestion Quittances' });
+    } catch (mailError) {
+      console.warn('Email de bienvenue non envoyé:', mailError.message);
+    }
     res.json({ token, userId, email });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -90,6 +116,68 @@ app.post('/api/auth/login', async (req, res) => {
     }
     const token = generateToken(user.id);
     res.json({ token, userId: user.id, email: user.email });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Mot de passe oublié
+app.post('/api/auth/forgot-password', async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({ error: 'Email requis' });
+    }
+
+    const user = await getUserByEmail(email);
+    if (!user) {
+      return res.json({ success: true });
+    }
+
+    const token = crypto.randomBytes(32).toString('hex');
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+    await createPasswordReset(user.id, tokenHash, expiresAt);
+
+    const resetUrl = `${getFrontendBaseUrl(req)}/?reset=${token}`;
+    try {
+      await sendPasswordResetEmail({
+        email,
+        appName: 'Gestion Quittances',
+        resetUrl
+      });
+    } catch (mailError) {
+      console.warn('Email reset non envoyé:', mailError.message);
+    }
+
+    return res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Réinitialisation du mot de passe
+app.post('/api/auth/reset-password', async (req, res) => {
+  try {
+    const { token, password } = req.body;
+    if (!token || !password || password.length < 6) {
+      return res.status(400).json({ error: 'Token et mot de passe (min 6 caractères) requis' });
+    }
+
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+    const reset = await getPasswordResetByToken(tokenHash);
+    if (!reset) {
+      return res.status(400).json({ error: 'Lien invalide ou expiré' });
+    }
+
+    if (reset.expires_at && new Date(reset.expires_at) < new Date()) {
+      return res.status(400).json({ error: 'Lien expiré' });
+    }
+
+    const passwordHash = await bcrypt.hash(password, 10);
+    await updateUserPassword(reset.user_id, passwordHash);
+    await markPasswordResetUsed(reset.id);
+    return res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

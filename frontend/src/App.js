@@ -10,6 +10,10 @@ function App() {
   const [authForm, setAuthForm] = useState({ email: '', password: '' });
   const [authError, setAuthError] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
+  const [authNotice, setAuthNotice] = useState('');
+  const [resetPassword, setResetPassword] = useState('');
+  const [resetPasswordConfirm, setResetPasswordConfirm] = useState('');
+  const [resetToken, setResetToken] = useState('');
   const [token, setToken] = useState(() => {
     try {
       return localStorage.getItem('authToken') || '';
@@ -67,6 +71,15 @@ function App() {
       delete axios.defaults.headers.common['Authorization'];
     }
   }, [token]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const tokenParam = params.get('reset');
+    if (tokenParam) {
+      setResetToken(tokenParam);
+      setAuthMode('reset');
+    }
+  }, []);
 
   // Chargement initial des données au montage
   useEffect(() => {
@@ -460,6 +473,7 @@ function App() {
   const handleAuthSubmit = async (e) => {
     e.preventDefault();
     setAuthError('');
+    setAuthNotice('');
     setAuthLoading(true);
     try {
       const endpoint = authMode === 'signup' ? '/auth/signup' : '/auth/login';
@@ -488,6 +502,61 @@ function App() {
     } catch (error) {
       console.error('Erreur auth:', error);
       const msg = error.response?.data?.error || error.message || 'Erreur de connexion';
+      setAuthError(msg);
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleForgotPassword = async (e) => {
+    e.preventDefault();
+    setAuthError('');
+    setAuthNotice('');
+    setAuthLoading(true);
+    try {
+      if (!authForm.email) {
+        setAuthError('Email requis');
+        return;
+      }
+      await axios.post(`${API_URL}/auth/forgot-password`, { email: authForm.email });
+      setAuthNotice('Si un compte existe, un email de réinitialisation a été envoyé.');
+      setAuthMode('login');
+    } catch (error) {
+      const msg = error.response?.data?.error || error.message || 'Erreur';
+      setAuthError(msg);
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleResetPassword = async (e) => {
+    e.preventDefault();
+    setAuthError('');
+    setAuthNotice('');
+    if (!resetToken) {
+      setAuthError('Lien invalide ou expiré');
+      return;
+    }
+    if (!resetPassword || resetPassword.length < 6) {
+      setAuthError('Mot de passe (min 6 caractères) requis');
+      return;
+    }
+    if (resetPassword !== resetPasswordConfirm) {
+      setAuthError('Les mots de passe ne correspondent pas');
+      return;
+    }
+    setAuthLoading(true);
+    try {
+      await axios.post(`${API_URL}/auth/reset-password`, { token: resetToken, password: resetPassword });
+      setAuthNotice('Mot de passe mis à jour. Vous pouvez vous connecter.');
+      setAuthMode('login');
+      setResetPassword('');
+      setResetPasswordConfirm('');
+      setResetToken('');
+      const nextUrl = window.location.origin + window.location.pathname;
+      window.history.replaceState({}, '', nextUrl);
+    } catch (error) {
+      const msg = error.response?.data?.error || error.message || 'Erreur';
       setAuthError(msg);
     } finally {
       setAuthLoading(false);
@@ -547,51 +616,111 @@ function App() {
                 <button
                   type="button"
                   className={authMode === 'login' ? 'auth-tab active' : 'auth-tab'}
-                  onClick={() => { setAuthMode('login'); setAuthError(''); }}
+                  onClick={() => { setAuthMode('login'); setAuthError(''); setAuthNotice(''); }}
                 >
                   Connexion
                 </button>
                 <button
                   type="button"
                   className={authMode === 'signup' ? 'auth-tab active' : 'auth-tab'}
-                  onClick={() => { setAuthMode('signup'); setAuthError(''); }}
+                  onClick={() => { setAuthMode('signup'); setAuthError(''); setAuthNotice(''); }}
                 >
                   Inscription
                 </button>
               </div>
-              <form onSubmit={handleAuthSubmit} className="auth-form">
-                <div className="form-group">
-                  <label>Email</label>
-                  <input
-                    type="email"
-                    required
-                    value={authForm.email}
-                    onChange={(e) => setAuthForm({ ...authForm, email: e.target.value })}
-                  />
-                </div>
-                <div className="form-group">
-                  <label>Mot de passe</label>
-                  <input
-                    type="password"
-                    required
-                    minLength={6}
-                    value={authForm.password}
-                    onChange={(e) => setAuthForm({ ...authForm, password: e.target.value })}
-                  />
-                </div>
-                {authError && (
-                  <div className="auth-error">
-                    {authError}
+              {authMode === 'forgot' ? (
+                <form onSubmit={handleForgotPassword} className="auth-form">
+                  <div className="form-group">
+                    <label>Email</label>
+                    <input
+                      type="email"
+                      required
+                      value={authForm.email}
+                      onChange={(e) => setAuthForm({ ...authForm, email: e.target.value })}
+                    />
                   </div>
-                )}
-                <button type="submit" className="btn-primary" disabled={authLoading}>
-                  {authLoading
-                    ? 'Veuillez patienter...'
-                    : authMode === 'signup'
-                      ? 'Créer mon compte'
-                      : 'Se connecter'}
-                </button>
-              </form>
+                  {authError && <div className="auth-error">{authError}</div>}
+                  {authNotice && <div className="auth-success">{authNotice}</div>}
+                  <button type="submit" className="btn-primary" disabled={authLoading}>
+                    {authLoading ? 'Veuillez patienter...' : 'Envoyer le lien'}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-link"
+                    onClick={() => { setAuthMode('login'); setAuthError(''); setAuthNotice(''); }}
+                  >
+                    Retour à la connexion
+                  </button>
+                </form>
+              ) : authMode === 'reset' ? (
+                <form onSubmit={handleResetPassword} className="auth-form">
+                  <div className="form-group">
+                    <label>Nouveau mot de passe</label>
+                    <input
+                      type="password"
+                      required
+                      minLength={6}
+                      value={resetPassword}
+                      onChange={(e) => setResetPassword(e.target.value)}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Confirmer le mot de passe</label>
+                    <input
+                      type="password"
+                      required
+                      minLength={6}
+                      value={resetPasswordConfirm}
+                      onChange={(e) => setResetPasswordConfirm(e.target.value)}
+                    />
+                  </div>
+                  {authError && <div className="auth-error">{authError}</div>}
+                  {authNotice && <div className="auth-success">{authNotice}</div>}
+                  <button type="submit" className="btn-primary" disabled={authLoading}>
+                    {authLoading ? 'Veuillez patienter...' : 'Mettre à jour'}
+                  </button>
+                </form>
+              ) : (
+                <form onSubmit={handleAuthSubmit} className="auth-form">
+                  <div className="form-group">
+                    <label>Email</label>
+                    <input
+                      type="email"
+                      required
+                      value={authForm.email}
+                      onChange={(e) => setAuthForm({ ...authForm, email: e.target.value })}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Mot de passe</label>
+                    <input
+                      type="password"
+                      required
+                      minLength={6}
+                      value={authForm.password}
+                      onChange={(e) => setAuthForm({ ...authForm, password: e.target.value })}
+                    />
+                  </div>
+                  {authError && <div className="auth-error">{authError}</div>}
+                  {authNotice && <div className="auth-success">{authNotice}</div>}
+                  <button type="submit" className="btn-primary" disabled={authLoading}>
+                    {authLoading
+                      ? 'Veuillez patienter...'
+                      : authMode === 'signup'
+                        ? 'Créer mon compte'
+                        : 'Se connecter'}
+                  </button>
+                  {authMode === 'login' && (
+                    <button
+                      type="button"
+                      className="btn-link"
+                      onClick={() => { setAuthMode('forgot'); setAuthError(''); setAuthNotice(''); }}
+                    >
+                      Mot de passe oublié ?
+                    </button>
+                  )}
+                </form>
+              )}
               <p className="auth-hint">
                 Une fois connecté, vous pourrez ajouter vos locataires, connecter Gmail et envoyer les quittances.
               </p>

@@ -3,6 +3,7 @@ const fs = require('fs-extra');
 const { getAccessToken } = require('./oauthService');
 
 let transporter = null;
+let appTransporter = null;
 
 async function initTransporter(config) {
   if (transporter && config.email.oauth2?.refreshToken && config.email.user === transporter.options.auth?.user) {
@@ -38,6 +39,51 @@ async function initTransporter(config) {
   } catch (error) {
     throw new Error('Erreur OAuth2: ' + error.message);
   }
+}
+
+function getAppEmailConfig() {
+  const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
+  const user = process.env.APP_EMAIL_USER;
+  const refreshToken = process.env.APP_EMAIL_OAUTH_REFRESH_TOKEN;
+  const from = process.env.APP_EMAIL_FROM || user;
+
+  if (!clientId || !clientSecret || !user || !refreshToken) {
+    return null;
+  }
+
+  return { clientId, clientSecret, user, refreshToken, from };
+}
+
+async function initAppTransporter() {
+  const cfg = getAppEmailConfig();
+  if (!cfg) {
+    return null;
+  }
+
+  if (appTransporter && appTransporter.options.auth?.user === cfg.user) {
+    return appTransporter;
+  }
+
+  const accessToken = await getAccessToken(
+    cfg.clientId,
+    cfg.clientSecret,
+    cfg.refreshToken
+  );
+
+  appTransporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+      type: 'OAuth2',
+      user: cfg.user,
+      clientId: cfg.clientId,
+      clientSecret: cfg.clientSecret,
+      refreshToken: cfg.refreshToken,
+      accessToken
+    }
+  });
+
+  return appTransporter;
 }
 
 async function sendEmail(locataire, config, pdfPath, mois, annee) {
@@ -78,6 +124,56 @@ async function sendEmail(locataire, config, pdfPath, mois, annee) {
   };
   
   await transporter.sendMail(mailOptions);
+}
+
+async function sendWelcomeEmail(payload) {
+  const transporter = await initAppTransporter();
+  if (!transporter) {
+    return false;
+  }
+
+  const { email, appName } = payload;
+  const mailOptions = {
+    from: process.env.APP_EMAIL_FROM || process.env.APP_EMAIL_USER,
+    to: email,
+    subject: `Bienvenue sur ${appName}`,
+    text: `Bienvenue sur ${appName} !\n\nVotre compte est prêt. Vous pouvez maintenant vous connecter.`,
+    html: `
+      <div style="font-family: Arial, sans-serif;">
+        <h2>Bienvenue sur ${appName} !</h2>
+        <p>Votre compte est prêt. Vous pouvez maintenant vous connecter.</p>
+      </div>
+    `
+  };
+
+  await transporter.sendMail(mailOptions);
+  return true;
+}
+
+async function sendPasswordResetEmail(payload) {
+  const transporter = await initAppTransporter();
+  if (!transporter) {
+    return false;
+  }
+
+  const { email, appName, resetUrl } = payload;
+  const mailOptions = {
+    from: process.env.APP_EMAIL_FROM || process.env.APP_EMAIL_USER,
+    to: email,
+    subject: `Réinitialiser votre mot de passe – ${appName}`,
+    text: `Vous avez demandé la réinitialisation de votre mot de passe.\n\nLien : ${resetUrl}\n\nSi vous n'êtes pas à l'origine de cette demande, ignorez cet email.`,
+    html: `
+      <div style="font-family: Arial, sans-serif;">
+        <h2>Réinitialiser votre mot de passe</h2>
+        <p>Vous avez demandé la réinitialisation de votre mot de passe.</p>
+        <p><a href="${resetUrl}">Cliquez ici pour réinitialiser votre mot de passe</a></p>
+        <p>Si vous n'êtes pas à l'origine de cette demande, ignorez cet email.</p>
+      </div>
+    `
+  };
+
+  await transporter.sendMail(mailOptions);
+  return true;
 }
 
 async function testEmailConnection(config) {
@@ -130,4 +226,10 @@ async function sendSupportEmail(payload, config) {
   await transporter.sendMail(mailOptions);
 }
 
-module.exports = { sendEmail, testEmailConnection, sendSupportEmail };
+module.exports = {
+  sendEmail,
+  sendWelcomeEmail,
+  sendPasswordResetEmail,
+  testEmailConnection,
+  sendSupportEmail
+};

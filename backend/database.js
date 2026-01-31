@@ -238,6 +238,15 @@ async function createUser(email, passwordHash) {
   return userId;
 }
 
+async function updateUserPassword(userId, passwordHash) {
+  const client = ensureClient();
+  const { error } = await client
+    .from('users')
+    .update({ password_hash: passwordHash })
+    .eq('id', userId);
+  if (error) throw new Error(`Erreur updateUserPassword: ${error.message}`);
+}
+
 async function getUserByEmail(email) {
   const client = ensureClient();
   let data, error;
@@ -268,6 +277,39 @@ async function getUserById(id) {
   return data || null;
 }
 
+async function createPasswordReset(userId, tokenHash, expiresAtIso) {
+  const client = ensureClient();
+  const { error } = await client
+    .from('password_resets')
+    .insert({
+      user_id: userId,
+      token_hash: tokenHash,
+      expires_at: expiresAtIso
+    });
+  if (error) throw new Error(`Erreur createPasswordReset: ${error.message}`);
+}
+
+async function getPasswordResetByToken(tokenHash) {
+  const client = ensureClient();
+  const { data, error } = await client
+    .from('password_resets')
+    .select('*')
+    .eq('token_hash', tokenHash)
+    .is('used_at', null)
+    .maybeSingle();
+  if (error) throw new Error(`Erreur getPasswordResetByToken: ${error.message}`);
+  return data || null;
+}
+
+async function markPasswordResetUsed(resetId) {
+  const client = ensureClient();
+  const { error } = await client
+    .from('password_resets')
+    .update({ used_at: new Date().toISOString() })
+    .eq('id', resetId);
+  if (error) throw new Error(`Erreur markPasswordResetUsed: ${error.message}`);
+}
+
 module.exports = {
   getConfig,
   updateConfig,
@@ -283,5 +325,9 @@ module.exports = {
   createUser,
   getUserByEmail,
   getUserById,
+  updateUserPassword,
+  createPasswordReset,
+  getPasswordResetByToken,
+  markPasswordResetUsed,
 };
 
