@@ -45,6 +45,34 @@
   align-items: center;
 }
 
+.header-actions-top {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.header-menu {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.btn-menu {
+  display: none;
+  background-color: #5b4330;
+  color: #fff;
+  border: none;
+  padding: 0.45rem 0.9rem;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: background-color 0.2s;
+}
+
+.btn-menu:hover {
+  background-color: #4a331f;
+}
+
 .auth-user-email {
   font-size: 0.9rem;
   color: #5b4330;
@@ -703,8 +731,14 @@
   .app-header {
     flex-direction: column;
     gap: 1rem;
-    align-items: flex-start;
+    align-items: stretch;
     padding: 1.25rem 1.25rem;
+  }
+
+  .brand-block {
+    align-items: center;
+    text-align: center;
+    width: 100%;
   }
 
   .header-actions {
@@ -712,6 +746,27 @@
     flex-direction: column;
     align-items: stretch;
     gap: 0.5rem;
+  }
+
+  .header-actions-top {
+    justify-content: space-between;
+    width: 100%;
+  }
+
+  .header-menu {
+    display: none;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .header-menu.is-open {
+    display: flex;
+  }
+
+  .btn-menu {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
   }
 
   .auth-user-email {
@@ -727,6 +782,13 @@
     align-items: center;
     justify-content: center;
     text-align: center;
+  }
+
+  .header-menu .btn-secondary,
+  .header-menu .btn-help,
+  .header-menu .btn-config,
+  .header-menu .btn-deconnexion {
+    width: 100%;
   }
 
   .locataires-header {

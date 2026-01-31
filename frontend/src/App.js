@@ -14,6 +14,7 @@ function App() {
   const [resetPassword, setResetPassword] = useState('');
   const [resetPasswordConfirm, setResetPasswordConfirm] = useState('');
   const [resetToken, setResetToken] = useState('');
+  const [showHeaderMenu, setShowHeaderMenu] = useState(false);
   const [token, setToken] = useState(() => {
     try {
       return localStorage.getItem('authToken') || '';
@@ -496,6 +497,7 @@ function App() {
         // ignore
       }
       setAuthForm({ email: '', password: '' });
+      setShowHeaderMenu(false);
       await loadLocataires();
       await loadBiens();
       await loadConfig();
@@ -566,6 +568,7 @@ function App() {
   const handleLogout = () => {
     setToken('');
     setAuthUserEmail('');
+    setShowHeaderMenu(false);
     try {
       localStorage.removeItem('authToken');
       localStorage.removeItem('authUserEmail');
@@ -587,21 +590,56 @@ function App() {
         <div className="header-actions">
           {token && (
             <>
-              {authUserEmail && (
-                <span className="auth-user-email">Connecté : {authUserEmail}</span>
-              )}
-              <button className="btn-secondary" onClick={handleSubscribe}>
-                S’abonner (Stripe)
-              </button>
-              <button className="btn-help" onClick={() => setShowHelpModal(true)}>
-                Aide / Support
-              </button>
-              <button className="btn-config" onClick={() => setShowConfigModal(true)}>
-                ⚙️ Configuration
-              </button>
-              <button className="btn-help" onClick={handleLogout}>
-                Se déconnecter
-              </button>
+              <div className="header-actions-top">
+                {authUserEmail && (
+                  <span className="auth-user-email">Connecté : {authUserEmail}</span>
+                )}
+                <button
+                  type="button"
+                  className="btn-menu"
+                  onClick={() => setShowHeaderMenu((prev) => !prev)}
+                >
+                  Menu
+                </button>
+              </div>
+              <div className={`header-menu ${showHeaderMenu ? 'is-open' : ''}`}>
+                <button
+                  className="btn-secondary"
+                  onClick={() => {
+                    setShowHeaderMenu(false);
+                    handleSubscribe();
+                  }}
+                >
+                  S’abonner (Stripe)
+                </button>
+                <button
+                  className="btn-help"
+                  onClick={() => {
+                    setShowHeaderMenu(false);
+                    setShowHelpModal(true);
+                  }}
+                >
+                  Aide / Support
+                </button>
+                <button
+                  className="btn-config"
+                  onClick={() => {
+                    setShowHeaderMenu(false);
+                    setShowConfigModal(true);
+                  }}
+                >
+                  ⚙️ Configuration
+                </button>
+                <button
+                  className="btn-help"
+                  onClick={() => {
+                    setShowHeaderMenu(false);
+                    handleLogout();
+                  }}
+                >
+                  Se déconnecter
+                </button>
+              </div>
             </>
           )}
         </div>
