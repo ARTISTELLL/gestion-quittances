@@ -61,6 +61,15 @@ function App() {
 
   const currentYear = new Date().getFullYear();
 
+  const clearAuthMessages = () => {
+    setAuthError('');
+    setAuthNotice('');
+  };
+
+  const closeHeaderMenu = () => {
+    setShowHeaderMenu(false);
+  };
+
   // Toujours travailler avec un tableau pour l'affichage
   const locatairesList = Array.isArray(locataires) ? locataires : [];
 
@@ -473,8 +482,7 @@ function App() {
   // === Gestion inscription / connexion ===
   const handleAuthSubmit = async (e) => {
     e.preventDefault();
-    setAuthError('');
-    setAuthNotice('');
+    clearAuthMessages();
     setAuthLoading(true);
     try {
       const endpoint = authMode === 'signup' ? '/auth/signup' : '/auth/login';
@@ -497,7 +505,7 @@ function App() {
         // ignore
       }
       setAuthForm({ email: '', password: '' });
-      setShowHeaderMenu(false);
+      closeHeaderMenu();
       await loadLocataires();
       await loadBiens();
       await loadConfig();
@@ -512,8 +520,7 @@ function App() {
 
   const handleForgotPassword = async (e) => {
     e.preventDefault();
-    setAuthError('');
-    setAuthNotice('');
+    clearAuthMessages();
     setAuthLoading(true);
     try {
       if (!authForm.email) {
@@ -533,8 +540,7 @@ function App() {
 
   const handleResetPassword = async (e) => {
     e.preventDefault();
-    setAuthError('');
-    setAuthNotice('');
+    clearAuthMessages();
     if (!resetToken) {
       setAuthError('Lien invalide ou expiré');
       return;
@@ -568,7 +574,7 @@ function App() {
   const handleLogout = () => {
     setToken('');
     setAuthUserEmail('');
-    setShowHeaderMenu(false);
+    closeHeaderMenu();
     try {
       localStorage.removeItem('authToken');
       localStorage.removeItem('authUserEmail');
@@ -579,6 +585,29 @@ function App() {
     setBiens([]);
     setConfig(null);
   };
+
+  const headerMenuActions = [
+    {
+      label: 'S’abonner (Stripe)',
+      className: 'btn-secondary',
+      onClick: handleSubscribe
+    },
+    {
+      label: 'Aide / Support',
+      className: 'btn-help',
+      onClick: () => setShowHelpModal(true)
+    },
+    {
+      label: '⚙️ Configuration',
+      className: 'btn-config',
+      onClick: () => setShowConfigModal(true)
+    },
+    {
+      label: 'Se déconnecter',
+      className: 'btn-help',
+      onClick: handleLogout
+    }
+  ];
 
   return (
     <div className="App">
@@ -603,42 +632,18 @@ function App() {
                 </button>
               </div>
               <div className={`header-menu ${showHeaderMenu ? 'is-open' : ''}`}>
-                <button
-                  className="btn-secondary"
-                  onClick={() => {
-                    setShowHeaderMenu(false);
-                    handleSubscribe();
-                  }}
-                >
-                  S’abonner (Stripe)
-                </button>
-                <button
-                  className="btn-help"
-                  onClick={() => {
-                    setShowHeaderMenu(false);
-                    setShowHelpModal(true);
-                  }}
-                >
-                  Aide / Support
-                </button>
-                <button
-                  className="btn-config"
-                  onClick={() => {
-                    setShowHeaderMenu(false);
-                    setShowConfigModal(true);
-                  }}
-                >
-                  ⚙️ Configuration
-                </button>
-                <button
-                  className="btn-help"
-                  onClick={() => {
-                    setShowHeaderMenu(false);
-                    handleLogout();
-                  }}
-                >
-                  Se déconnecter
-                </button>
+                {headerMenuActions.map((action) => (
+                  <button
+                    key={action.label}
+                    className={action.className}
+                    onClick={() => {
+                      closeHeaderMenu();
+                      action.onClick();
+                    }}
+                  >
+                    {action.label}
+                  </button>
+                ))}
               </div>
             </>
           )}
@@ -654,14 +659,14 @@ function App() {
                 <button
                   type="button"
                   className={authMode === 'login' ? 'auth-tab active' : 'auth-tab'}
-                  onClick={() => { setAuthMode('login'); setAuthError(''); setAuthNotice(''); }}
+                  onClick={() => { setAuthMode('login'); clearAuthMessages(); }}
                 >
                   Connexion
                 </button>
                 <button
                   type="button"
                   className={authMode === 'signup' ? 'auth-tab active' : 'auth-tab'}
-                  onClick={() => { setAuthMode('signup'); setAuthError(''); setAuthNotice(''); }}
+                  onClick={() => { setAuthMode('signup'); clearAuthMessages(); }}
                 >
                   Inscription
                 </button>
@@ -685,7 +690,7 @@ function App() {
                   <button
                     type="button"
                     className="btn-link"
-                    onClick={() => { setAuthMode('login'); setAuthError(''); setAuthNotice(''); }}
+                    onClick={() => { setAuthMode('login'); clearAuthMessages(); }}
                   >
                     Retour à la connexion
                   </button>
@@ -752,7 +757,7 @@ function App() {
                     <button
                       type="button"
                       className="btn-link"
-                      onClick={() => { setAuthMode('forgot'); setAuthError(''); setAuthNotice(''); }}
+                      onClick={() => { setAuthMode('forgot'); clearAuthMessages(); }}
                     >
                       Mot de passe oublié ?
                     </button>

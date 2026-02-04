@@ -1,5 +1,4 @@
 const nodemailer = require('nodemailer');
-const fs = require('fs-extra');
 const { getAccessToken } = require('./oauthService');
 
 let transporter = null;
@@ -38,6 +37,16 @@ async function initTransporter(config) {
     return transporter;
   } catch (error) {
     throw new Error('Erreur OAuth2: ' + error.message);
+  }
+}
+
+function ensureOAuthConfig(config) {
+  const hasOAuth2 = config.email.oauth2?.refreshToken
+    && process.env.GOOGLE_OAUTH_CLIENT_ID
+    && process.env.GOOGLE_OAUTH_CLIENT_SECRET;
+
+  if (!config.email.user || !hasOAuth2) {
+    throw new Error('Configuration email non complète. Connectez-vous à Gmail via OAuth2.');
   }
 }
 
@@ -86,12 +95,22 @@ async function initAppTransporter() {
   return appTransporter;
 }
 
-async function sendEmail(locataire, config, pdfPath, mois, annee) {
-  const hasOAuth2 = config.email.oauth2?.refreshToken && process.env.GOOGLE_OAUTH_CLIENT_ID && process.env.GOOGLE_OAUTH_CLIENT_SECRET;
-  
-  if (!config.email.user || !hasOAuth2) {
-    throw new Error('Configuration email non complète. Connectez-vous à Gmail via OAuth2.');
+async function getAppTransporterOrThrow() {
+  const transporter = await initAppTransporter();
+  if (!transporter) {
+    throw new Error('Email app non configuré (APP_EMAIL_USER / APP_EMAIL_OAUTH_REFRESH_TOKEN manquants)');
   }
+  return transporter;
+}
+
+async function sendAppEmail({ to, subject, text, html }) {
+  const transporter = await getAppTransporterOrThrow();
+  const from = process.env.APP_EMAIL_FROM || process.env.APP_EMAIL_USER;
+  await transporter.sendMail({ from, to, subject, text, html });
+}
+
+async function sendEmail(locataire, config, pdfPath, mois, annee) {
+  ensureOAuthConfig(config);
   
   const transporter = await initTransporter(config);
   
@@ -127,14 +146,8 @@ async function sendEmail(locataire, config, pdfPath, mois, annee) {
 }
 
 async function sendWelcomeEmail(payload) {
-  const transporter = await initAppTransporter();
-  if (!transporter) {
-    throw new Error('Email app non configuré (APP_EMAIL_USER / APP_EMAIL_OAUTH_REFRESH_TOKEN manquants)');
-  }
-
   const { email, appName } = payload;
-  const mailOptions = {
-    from: process.env.APP_EMAIL_FROM || process.env.APP_EMAIL_USER,
+  await sendAppEmail({
     to: email,
     subject: `Bienvenue sur ${appName}`,
     text: `Bienvenue sur ${appName} !\n\nVotre compte est prêt. Vous pouvez maintenant vous connecter.`,
@@ -144,21 +157,13 @@ async function sendWelcomeEmail(payload) {
         <p>Votre compte est prêt. Vous pouvez maintenant vous connecter.</p>
       </div>
     `
-  };
-
-  await transporter.sendMail(mailOptions);
+  });
   return true;
 }
 
 async function sendPasswordResetEmail(payload) {
-  const transporter = await initAppTransporter();
-  if (!transporter) {
-    throw new Error('Email app non configuré (APP_EMAIL_USER / APP_EMAIL_OAUTH_REFRESH_TOKEN manquants)');
-  }
-
   const { email, appName, resetUrl } = payload;
-  const mailOptions = {
-    from: process.env.APP_EMAIL_FROM || process.env.APP_EMAIL_USER,
+  await sendAppEmail({
     to: email,
     subject: `Réinitialiser votre mot de passe – ${appName}`,
     text: `Vous avez demandé la réinitialisation de votre mot de passe.\n\nLien : ${resetUrl}\n\nSi vous n'êtes pas à l'origine de cette demande, ignorez cet email.`,
@@ -170,20 +175,15 @@ async function sendPasswordResetEmail(payload) {
         <p>Si vous n'êtes pas à l'origine de cette demande, ignorez cet email.</p>
       </div>
     `
-  };
-
-  await transporter.sendMail(mailOptions);
+  });
   return true;
 }
 
 async function testEmailConnection(config) {
-  const hasOAuth2 = config.email.oauth2?.refreshToken && process.env.GOOGLE_OAUTH_CLIENT_ID && process.env.GOOGLE_OAUTH_CLIENT_SECRET;
-  
-  if (!config.email.user || !hasOAuth2) {
-    return { 
-      success: false, 
-      message: 'Configuration email non complète. Connectez-vous à Gmail via OAuth2.' 
-    };
+  try {
+    ensureOAuthConfig(config);
+  } catch (error) {
+    return { success: false, message: error.message };
   }
   
   try {
@@ -196,11 +196,7 @@ async function testEmailConnection(config) {
 }
 
 async function sendSupportEmail(payload, config) {
-  const hasOAuth2 = config.email.oauth2?.refreshToken && process.env.GOOGLE_OAUTH_CLIENT_ID && process.env.GOOGLE_OAUTH_CLIENT_SECRET;
-
-  if (!config.email.user || !hasOAuth2) {
-    throw new Error('Configuration email non complète. Connectez-vous à Gmail via OAuth2.');
-  }
+  ensureOAuthConfig(config);
 
   const transporter = await initTransporter(config);
 
