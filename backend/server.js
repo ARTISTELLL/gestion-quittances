@@ -354,8 +354,8 @@ app.post('/api/oauth/get-auth-url', requireAuth, async (req, res) => {
         error: 'OAuth non configuré : définir GOOGLE_OAUTH_CLIENT_ID et GOOGLE_OAUTH_CLIENT_SECRET dans les variables d\'environnement du serveur.'
       });
     }
-    const baseUrl = getBaseUrl(req);
-    const redirectUri = `${baseUrl}/api/oauth/callback`;
+    const backendUrl = process.env.BACKEND_URL || getBaseUrl(req);
+    const redirectUri = `${backendUrl}/api/oauth/callback`;
     // Inclure userId dans state pour que le callback sache quel utilisateur connecter
     const state = String(req.userId);
     const authUrl = getAuthUrl(clientId, clientSecret, redirectUri, state);
@@ -386,8 +386,8 @@ app.get('/api/oauth/callback', async (req, res) => {
     if (!clientId || !clientSecret) {
       return res.status(500).send('OAuth non configuré sur le serveur (variables d\'environnement manquantes).');
     }
-    const baseUrl = getBaseUrl(req);
-    const redirectUri = `${baseUrl}/api/oauth/callback`;
+    const backendUrl = process.env.BACKEND_URL || getBaseUrl(req);
+    const redirectUri = `${backendUrl}/api/oauth/callback`;
     const tokens = await getTokenFromCode(code, clientId, clientSecret, redirectUri);
     
     // Sauvegarder le refresh token dans la config de l'utilisateur
