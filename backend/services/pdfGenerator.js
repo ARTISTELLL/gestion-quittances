@@ -54,8 +54,9 @@ async function generateQuittance(locataire, config, mois, annee) {
       const locataireNom = `${locataire.prenom} ${locataire.nom}`.trim();
       
       // Calcul de la date de fin de mois
-      const moisIndex = new Date(`${mois} 1, ${annee}`).getMonth();
-      const dernierJour = new Date(annee, moisIndex + 1, 0).getDate();
+      const moisFr = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
+      const moisIndex = moisFr.findIndex(m => m.toLowerCase() === mois.toLowerCase());
+      const dernierJour = moisIndex !== -1 ? new Date(annee, moisIndex + 1, 0).getDate() : 31;
       
       doc.text('Madame, Monsieur,', { align: 'left' });
       doc.moveDown(0.5);
