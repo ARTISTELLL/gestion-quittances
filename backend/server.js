@@ -398,21 +398,18 @@ app.get('/api/oauth/callback', async (req, res) => {
     const frontendUrl = getFrontendBaseUrl(req);
     res.send(`
       <html>
-        <head><title>Autorisation réussie</title></head>
+        <head>
+          <title>Autorisation réussie</title>
+          <meta http-equiv="refresh" content="0; url=${frontendUrl}">
+        </head>
         <body style="font-family: Arial, sans-serif; text-align: center; padding: 50px;">
           <h1 style="color: green;">✅ Autorisation Gmail réussie !</h1>
-          <p>Vous pouvez fermer cette fenêtre et retourner à l'application.</p>
+          <p>Redirection en cours...</p>
           <p>
             <a href="${frontendUrl}" style="color: #007bff; text-decoration: underline;">
-              Retourner à l'application
+              Cliquez ici si la redirection ne fonctionne pas
             </a>
           </p>
-          <script>
-            setTimeout(() => {
-              window.close();
-              window.location.href = "${frontendUrl}";
-            }, 2000);
-          </script>
         </body>
       </html>
     `);
