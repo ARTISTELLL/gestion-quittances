@@ -6,7 +6,7 @@ async function generateQuittance(locataire, config, mois, annee) {
   return new Promise((resolve, reject) => {
     try {
       const doc = new PDFDocument({ margin: 50 });
-      const outputDir = path.join(__dirname, '../quittances');
+      const outputDir = process.env.VERCEL ? '/tmp/quittances' : path.join(__dirname, '../quittances');
       fs.ensureDirSync(outputDir);
       
       const fileName = `quittance_${locataire.id}_${mois}_${annee}.pdf`;
